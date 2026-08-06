@@ -1,0 +1,12 @@
+# Build / ROS 2 temporary files
+build/
+install/
+log/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+
+# OS generated files
+.DS_Store
