@@ -86,7 +86,7 @@ source install/setup.bash
 
 ### 2. 実行
 
-#### ダミー点群を用いたテスト実行（実機/bagなし）
+#### ダミー点群を用いたテスト実行（起動と同時に事前設定済み RViz2 が立ち上がります）
 ```bash
 ros2 launch lidar_perception_system perception.launch.py use_dummy_publisher:=true
 ```
@@ -100,12 +100,8 @@ ros2 launch lidar_perception_system perception.launch.py use_dummy_publisher:=fa
 ros2 launch lidar_perception_system perception.launch.py use_dummy_publisher:=false localization_type:=ndt
 ```
 
-### 3. デバッグ表示 (RViz2)
-別ターミナルで同梱の RViz2 設定ファイルを起動します。
-
-```bash
-rviz2 -d $(ros2 pkg share lidar_perception_system)/rviz/perception_debug.rviz
-```
+> [!TIP]
+> `ros2 launch` を実行すると、全表示項目（背景PCD、LiDAR生点群、動的点群、各種認識マーカー、TF）が事前に完全セッティングされた RViz2 ウィンドウが自動で起動します。必要に応じて `use_rviz:=false` を指定することで RViz2 の自動起動を無効化できます。
 
 ---
 
