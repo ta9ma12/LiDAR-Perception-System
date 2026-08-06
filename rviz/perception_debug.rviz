@@ -1,5 +1,5 @@
 Panels:
-  - Class: rviz_default_plugins/Displays
+  - Class: rviz_common/Displays
     Help Height: 78
     Name: Displays
     Property Tree Widget:
