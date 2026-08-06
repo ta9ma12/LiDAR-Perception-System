@@ -6,7 +6,11 @@ Panels:
       Expanded:
         - /Global Options1
         - /TF1
-        - /MarkerArray1
+        - /StaticFieldPCD1
+        - /RawLidarCloud1
+        - /DynamicCloud1
+        - /StaticMarkers1
+        - /DynamicMarkers1
       Splitter Ratio: 0.5
 Visualization Manager:
   Class: ""
@@ -14,21 +18,39 @@ Visualization Manager:
     - Class: rviz_default_plugins/Grid
       Name: Grid
       Value: true
+      Plane: XY
+      Cell Size: 1.0
+      Plane Cell Count: 20
     - Class: rviz_default_plugins/TF
       Name: TF
       Value: true
+      Show Arrows: true
+      Show Axes: true
+      Show Names: true
     - Class: rviz_default_plugins/PointCloud2
       Name: StaticFieldPCD
       Topic: /dynamic_obj_detector/map_cloud
       Value: true
+      Color Transformer: FlatColor
+      Color: 200; 200; 200
+      Size (m): 0.03
+      Style: Points
     - Class: rviz_default_plugins/PointCloud2
       Name: RawLidarCloud
       Topic: /livox/lidar
       Value: true
+      Color Transformer: FlatColor
+      Color: 0; 255; 255
+      Size (m): 0.04
+      Style: Points
     - Class: rviz_default_plugins/PointCloud2
       Name: DynamicCloud
       Topic: /dynamic_obj_detector/dynamic_cloud
       Value: true
+      Color Transformer: FlatColor
+      Color: 255; 0; 0
+      Size (m): 0.06
+      Style: Points
     - Class: rviz_default_plugins/MarkerArray
       Name: StaticMarkers
       Topic: /static_obj_detector/debug_markers
@@ -39,3 +61,4 @@ Visualization Manager:
       Value: true
   Global Options:
     Fixed Frame: map
+    Background Color: 48; 48; 48
