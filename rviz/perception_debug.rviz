@@ -12,6 +12,12 @@ Panels:
         - /StaticMarkers1
         - /DynamicMarkers1
       Splitter Ratio: 0.5
+  - Class: rviz_common/Views
+    Name: Views
+    Property Tree Widget:
+      Expanded:
+        - /Current1
+      Splitter Ratio: 0.5
 Visualization Manager:
   Class: ""
   Displays:
@@ -62,3 +68,32 @@ Visualization Manager:
   Global Options:
     Fixed Frame: map
     Background Color: 48; 48; 48
+  Tools:
+    - Class: rviz_default_plugins/Interact
+      Hide Inactive Objects: true
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/FocusCamera
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 15.0
+      Enable Stereo Rendering:
+        Stereo Eye Separation: 0.06
+        Stereo Focal Length: 10.0
+        Swap Stereo Eyes: false
+        Value: false
+      Focal Point:
+        X: 0.0
+        Y: 0.0
+        Z: 0.5
+      Focal Shape Fixed Size: true
+      Focal Shape Size: 0.05
+      Invert Z Axis: false
+      Name: Current
+      Near Clip Distance: 0.01
+      Pitch: 0.785398
+      Target Frame: map
+      Value: Orbit (rviz)
+      Yaw: 0.785398
+    Saved: ~
