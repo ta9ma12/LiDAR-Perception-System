@@ -39,6 +39,7 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_cloud_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_markers_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_dynamic_cloud_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_map_cloud_;
 
   // TF2
   std::shared_ptr<tf2_ros::Buffer> tf_buffer_;

@@ -28,10 +28,6 @@ DynamicObjDetector::DynamicObjDetector(const rclcpp::NodeOptions & options)
 
   loadParameters();
 
-  if (!map_pcd_path_.empty()) {
-    loadMapPcd(map_pcd_path_);
-  }
-
   sub_cloud_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
     input_topic_, rclcpp::SensorDataQoS(),
     std::bind(&DynamicObjDetector::cloudCallback, this, std::placeholders::_1));
@@ -40,6 +36,12 @@ DynamicObjDetector::DynamicObjDetector(const rclcpp::NodeOptions & options)
     "~/debug_markers", 10);
   pub_dynamic_cloud_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(
     "~/dynamic_cloud", 10);
+  pub_map_cloud_ = this->create_publisher<sensor_msgs::msg::PointCloud2>(
+    "~/map_cloud", rclcpp::QoS(1).transient_local());
+
+  if (!map_pcd_path_.empty()) {
+    loadMapPcd(map_pcd_path_);
+  }
 
   RCLCPP_INFO(this->get_logger(), "DynamicObjDetector initialized.");
 }
@@ -81,6 +83,14 @@ bool DynamicObjDetector::loadMapPcd(const std::string & pcd_path)
   RCLCPP_INFO(this->get_logger(), "Loaded static map PCD with %zu points.", map_cloud_->size());
   map_kdtree_->setInputCloud(map_cloud_);
   has_map_ = true;
+
+  // Publish map cloud for RViz visualization
+  sensor_msgs::msg::PointCloud2 map_msg;
+  pcl::toROSMsg(*map_cloud_, map_msg);
+  map_msg.header.frame_id = target_frame_;
+  map_msg.header.stamp = this->now();
+  pub_map_cloud_->publish(map_msg);
+
   return true;
 }
 

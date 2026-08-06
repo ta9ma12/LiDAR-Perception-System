@@ -18,8 +18,16 @@ Visualization Manager:
       Name: TF
       Value: true
     - Class: rviz_default_plugins/PointCloud2
+      Name: StaticFieldPCD
+      Topic: /dynamic_obj_detector/map_cloud
+      Value: true
+    - Class: rviz_default_plugins/PointCloud2
       Name: RawLidarCloud
       Topic: /livox/lidar
+      Value: true
+    - Class: rviz_default_plugins/PointCloud2
+      Name: DynamicCloud
+      Topic: /dynamic_obj_detector/dynamic_cloud
       Value: true
     - Class: rviz_default_plugins/MarkerArray
       Name: StaticMarkers
