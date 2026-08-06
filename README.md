@@ -86,17 +86,23 @@ source install/setup.bash
 
 ### 2. 実行
 
-#### 1. 認識ノードの起動 (ターミナル 1)
-```bash
-# ダミー点群データでの動作テスト時
-ros2 launch lidar_perception_system perception.launch.py use_dummy_publisher:=true
+#### 1. 本番環境（実機 / rosbag 連携時）
+認識ノード群（`static_obj_detector` / `dynamic_obj_detector`）のみを起動します：
 
-# 実機 / rosbag 環境時 (GLIM 使用)
-ros2 launch lidar_perception_system perception.launch.py use_dummy_publisher:=false localization_type:=glim
+```bash
+ros2 launch lidar_perception_system perception.launch.py
+```
+*(自己位置推定に ndt_localizer を用いる場合は `localization_type:=ndt` を指定)*
+
+#### 2. オフライン動作テスト時（ダミー点群発行）
+実機や rosbag がない環境で、ダミー点群・TFパブリッシャーを含めて起動します：
+
+```bash
+ros2 launch lidar_perception_system test_dummy.launch.py
 ```
 
-#### 2. デバッグ用 RViz2 の起動 (ターミナル 2)
-全表示設定（背景PCDマップ、LiDAR生点群、動的点群、各種認識マーカー、TF）が事前に完全セッティングされた RViz2 を別ターミナルで起動します：
+#### 3. デバッグ用 RViz2 の起動
+完全事前セッティング済みの RViz2 を別ターミナルで起動します：
 
 ```bash
 ros2 launch lidar_perception_system rviz.launch.py

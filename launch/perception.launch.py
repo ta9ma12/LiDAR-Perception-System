@@ -26,7 +26,7 @@ def generate_launch_description():
 
     use_dummy_arg = DeclareLaunchArgument(
         'use_dummy_publisher',
-        default_value='true',
+        default_value='false',
         description='Whether to launch dummy cloud publisher for testing'
     )
 
