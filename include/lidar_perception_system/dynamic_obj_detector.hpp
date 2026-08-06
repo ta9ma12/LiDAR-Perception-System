@@ -52,6 +52,8 @@ private:
   // Map cloud and KD-Tree for background subtraction
   pcl::PointCloud<pcl::PointXYZ>::Ptr map_cloud_;
   pcl::KdTreeFLANN<pcl::PointXYZ>::Ptr map_kdtree_;
+  sensor_msgs::msg::PointCloud2 cached_map_msg_;
+  rclcpp::TimerBase::SharedPtr map_pub_timer_;
   bool has_map_{false};
 
   // Parameters

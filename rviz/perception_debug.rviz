@@ -38,7 +38,7 @@ Visualization Manager:
       Topic: /dynamic_obj_detector/map_cloud
       Value: true
       Color Transformer: FlatColor
-      Color: 200; 200; 200
+      Color: 255; 255; 255
       Size (m): 0.03
       Style: Points
     - Class: rviz_default_plugins/PointCloud2

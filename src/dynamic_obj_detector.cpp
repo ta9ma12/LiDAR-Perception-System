@@ -84,12 +84,21 @@ bool DynamicObjDetector::loadMapPcd(const std::string & pcd_path)
   map_kdtree_->setInputCloud(map_cloud_);
   has_map_ = true;
 
-  // Publish map cloud for RViz visualization
-  sensor_msgs::msg::PointCloud2 map_msg;
-  pcl::toROSMsg(*map_cloud_, map_msg);
-  map_msg.header.frame_id = target_frame_;
-  map_msg.header.stamp = this->now();
-  pub_map_cloud_->publish(map_msg);
+  // Cache and publish map cloud for RViz visualization
+  pcl::toROSMsg(*map_cloud_, cached_map_msg_);
+  cached_map_msg_.header.frame_id = target_frame_;
+  cached_map_msg_.header.stamp = this->now();
+  pub_map_cloud_->publish(cached_map_msg_);
+
+  // Create timer to periodically publish map cloud (every 1s) for late-connecting RViz2
+  map_pub_timer_ = this->create_wall_timer(
+    std::chrono::seconds(1),
+    [this]() {
+      if (has_map_) {
+        cached_map_msg_.header.stamp = this->now();
+        pub_map_cloud_->publish(cached_map_msg_);
+      }
+    });
 
   return true;
 }
