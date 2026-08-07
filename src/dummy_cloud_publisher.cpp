@@ -87,17 +87,17 @@ private:
       }
     }
 
-    // Fixed Bucket 1 (x:1.0, y:1.0, z:0.1)
-    addCluster(cloud, 1.0, 1.0, 0.1, 0.3, 0.3, 0.2, 80);
+    // Fixed Bucket 1 (CAD: x:1.950, y:-3.230, floor-level)
+    addCluster(cloud, 1.950, -3.230, 0.13, 0.3, 0.3, 0.2, 80);
 
-    // Fixed Bucket 2 (x:2.5, y:-1.5, z:0.75)
-    addCluster(cloud, 2.5, -1.5, 0.75, 0.3, 0.3, 0.2, 80);
+    // Fixed Bucket 2 (CAD: x:1.300, y:0.100, on H600 stand)
+    addCluster(cloud, 1.300, 0.100, 0.73, 0.3, 0.3, 0.2, 80);
 
-    // Fixed Bucket 3 (x:0.0, y:2.0, z:0.4)
-    addCluster(cloud, 0.0, 2.0, 0.4, 0.3, 0.3, 0.2, 80);
+    // Fixed Bucket 3 (CAD: x:1.300, y:-2.900, on H300 stand)
+    addCluster(cloud, 1.300, -2.900, 0.43, 0.3, 0.3, 0.2, 80);
 
-    // Flag (x:0.0, y:0.0, z:2.9)
-    addCluster(cloud, 0.0, 0.0, 2.9, 0.2, 0.2, 0.1, 50);
+    // Flag (CAD: x:3.710, y:-3.285, top of pole)
+    addCluster(cloud, 3.710, -3.285, 2.9, 0.2, 0.2, 0.1, 50);
 
     // Dynamic Moving Bucket / Opponent Robot Base (Moving in circle)
     static double angle = 0.0;

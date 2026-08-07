@@ -76,11 +76,16 @@ ament_target_dependencies(dummy_cloud_publisher
 )
 target_link_libraries(dummy_cloud_publisher ${PCL_LIBRARIES})
 
+# CAD-precise field map generator
+add_executable(generate_cad_map src/generate_cad_map.cpp)
+target_link_libraries(generate_cad_map ${PCL_LIBRARIES})
+
 # Install executables
 install(TARGETS
   static_obj_detector
   dynamic_obj_detector
   dummy_cloud_publisher
+  generate_cad_map
   DESTINATION lib/${PROJECT_NAME}
 )
 
