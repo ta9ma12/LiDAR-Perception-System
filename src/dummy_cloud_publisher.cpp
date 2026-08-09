@@ -90,8 +90,8 @@ private:
     // Fixed Bucket 1 (CAD: x:0.910, y:-3.060, floor-level)
     addCluster(cloud, 0.910, -3.060, 0.13, 0.3, 0.3, 0.2, 80);
 
-    // Fixed Bucket 2 (CAD: x:1.480, y:0.820, on H600 stand)
-    addCluster(cloud, 1.480, 0.820, 0.73, 0.3, 0.3, 0.2, 80);
+    // Fixed Bucket 2 (CAD: x:1.480, y:1.180, on H600 stand)
+    addCluster(cloud, 1.480, 1.180, 0.73, 0.3, 0.3, 0.2, 80);
 
     // Fixed Bucket 3 (CAD: x:1.480, y:-1.820, on H300 stand)
     addCluster(cloud, 1.480, -1.820, 0.43, 0.3, 0.3, 0.2, 80);

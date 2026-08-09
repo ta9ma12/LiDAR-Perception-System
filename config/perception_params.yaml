@@ -17,11 +17,11 @@ static_obj_detector:
       roi_z_min: 0.00
       roi_z_max: 0.26
 
-    # 固定バケツ② (高さ600mm台座: CAD X=1.480, Y=0.820)
+    # 固定バケツ② (高さ600mm台座: CAD X=1.480, Y=1.180)
     fixed_bucket_2:
       enabled: true
       center_x: 1.480
-      center_y: 0.820
+      center_y: 1.180
       roi_size_x: 0.60
       roi_size_y: 0.60
       roi_z_min: 0.60
