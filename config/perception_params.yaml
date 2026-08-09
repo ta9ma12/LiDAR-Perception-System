@@ -7,21 +7,21 @@ static_obj_detector:
     input_topic: "/livox/lidar"
     target_frame: "map"
 
-    # 固定バケツ① (床面配置: CAD X=0.910, Y=-3.060)
+    # 固定バケツ① (床面配置: CAD X=0.870, Y=0.000)
     fixed_bucket_1:
       enabled: true
-      center_x: 0.910
-      center_y: -3.060
+      center_x: 0.870
+      center_y: 0.000
       roi_size_x: 0.60
       roi_size_y: 0.60
       roi_z_min: 0.00
       roi_z_max: 0.26
 
-    # 固定バケツ② (高さ600mm台座: CAD X=1.480, Y=1.180)
+    # 固定バケツ② (高さ600mm台座: CAD X=1.480, Y=1.820)
     fixed_bucket_2:
       enabled: true
       center_x: 1.480
-      center_y: 1.180
+      center_y: 1.820
       roi_size_x: 0.60
       roi_size_y: 0.60
       roi_z_min: 0.60
@@ -37,11 +37,11 @@ static_obj_detector:
       roi_z_min: 0.30
       roi_z_max: 0.56
 
-    # 旗 (高さ3000mm: CAD X=3.065, Y=-3.060)
+    # 旗 (高さ3000mm: CAD X=3.025, Y=0.000)
     flag:
       enabled: true
-      center_x: 3.065
-      center_y: -3.060
+      center_x: 3.025
+      center_y: 0.000
       roi_size_x: 1.00
       roi_size_y: 1.00
       roi_z_min: 2.80
