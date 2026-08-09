@@ -13,10 +13,9 @@ Livox Mid-360 から取得した 3D 点群データ（Point Cloud）を基に、
    * [1. 静的オブジェクト認識 (`static_obj_detector`)](#1-静的オブジェクト認識-static_obj_detector)
    * [2. 動的オブジェクト認識 (`dynamic_obj_detector`)](#2-動的オブジェクト認識-dynamic_obj_detector)
    * [3. オフライン開発用ダミーノード (`dummy_cloud_publisher`)](#3-オフライン開発用ダミーノード-dummy_cloud_publisher)
-4. [自己位置推定（Localization）との連携](#自己位置推定localizationとの連携)
-5. [ディレクトリ構成](#ディレクトリ構成)
-6. [パラメータ設定 (`config/perception_params.yaml`)](#パラメータ設定-configperception_paramsyaml)
-7. [ビルド・実行手順](#ビルド実行手順)
+4. [ディレクトリ構成](#ディレクトリ構成)
+5. [パラメータ設定 (`config/perception_params.yaml`)](#パラメータ設定-configperception_paramsyaml)
+6. [ビルド・実行手順](#ビルド実行手順)
 
 ---
 
@@ -125,23 +124,6 @@ X = -5.70m  [手前フェンス] Y = -4.70m
 
 ---
 
-## 自己位置推定（Localization）との連携
-
-本システムはターゲット認識およびトラッキングを担うため、自己位置推定ノード（外部パッケージ）と組み合わせて使用します。
-
-* **推奨パッケージ**: **GLIM (Localizationモード)** または **`ndt_localizer`**
-* **仕組み**: 外部ノードが LiDAR 点群と `maps/robocon2026_field.pcd` を照合（点群マッチング）し、`map` ➔ `base_link` の TF を継続更新します。
-* **起動引数での切り替え**:
-  ```bash
-  # GLIM連携（デフォルト）
-  ros2 launch lidar_perception_system perception.launch.py localization_type:=glim
-
-  # NDT Localizer連携
-  ros2 launch lidar_perception_system perception.launch.py localization_type:=ndt
-  ```
-
----
-
 ## ディレクトリ構成
 
 ```text
@@ -202,10 +184,20 @@ source install/setup.bash
 ### 2. 実行
 
 #### 1. 本番環境（実機 / rosbag 連携時）
-認識ノード群（`static_obj_detector` / `dynamic_obj_detector`）のみを起動します：
+認識ノード群（`static_obj_detector` / `dynamic_obj_detector`）のみを起動します。
+
+本システムはターゲット認識・追従を担うため、**自己位置推定ノード（外部パッケージ）と連携**して動作します：
+* **推奨自己位置推定パッケージ**: **GLIM (Localizationモード)** または **`ndt_localizer`**
+* **自己位置推定の仕組み**: 外部ノードが LiDAR 点群と `maps/robocon2026_field.pcd` を点群マッチング照合し、`map` ➔ `base_link` の TF（自機現在地）を継続配信します。
+
+起動時に `localization_type` 引数で切り替えが可能です：
 
 ```bash
+# GLIM 連携で起動（デフォルト）
 ros2 launch lidar_perception_system perception.launch.py
+
+# NDT Localizer 連携で起動
+ros2 launch lidar_perception_system perception.launch.py localization_type:=ndt
 ```
 
 #### 2. オフライン動作テスト時（ダミー点群発行）
