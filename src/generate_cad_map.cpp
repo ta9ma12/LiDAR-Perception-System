@@ -51,7 +51,13 @@ namespace official
     constexpr double BUCKET2_BASE_H = 0.600;
     constexpr double BUCKET3_BASE_H = 0.300;
 
+    // 旗寸法
+    constexpr double FLAG_BASE_X  = 0.450;
+    constexpr double FLAG_BASE_Y  = 0.450;
+    constexpr double FLAG_WIDTH   = 0.600;
+    constexpr double FLAG_HEIGHT  = 1.800;
     constexpr double FLAG_TOTAL_H = 3.000;
+    constexpr double FLAG_BOTTOM_Z = FLAG_TOTAL_H - FLAG_HEIGHT; // 1.200m
 }
 
 // =========================================================================
@@ -102,8 +108,8 @@ namespace lidar_model
     constexpr double CHAIR_TOP_THICKNESS = 0.020;
 
     constexpr double FLAG_POLE_RADIUS = 0.020;
+    constexpr double FLAG_CLOTH_THICKNESS = 0.020;
     constexpr double FLAG_BASE_THICKNESS = 0.050;
-    constexpr double FLAG_SHEET_W = 0.450;
 }
 
 // =========================================================================
@@ -189,22 +195,22 @@ void addHollowTable(Cloud& cloud, double cx, double cy, double z_bottom,
     addBoxBounds(cloud, lx_max, lx_max + leg_w, ly_max, ly_max + leg_w, z_bottom, z_bottom + h - top_t, res);
 }
 
-// Generate a chair model with hollow legs, seat, and backrest
+// Generate a chair model with hollow legs, seat, and backrest facing outer wall (Red = -X, Blue = +X)
 void addHollowChair(Cloud& cloud, double cx, double cy, double z_bottom,
-                    double w, double d, double h_total, double h_seat, double top_t, double leg_w, double res = 0.02)
+                    double w, double d, double h_total, double h_seat,
+                    double top_t, double leg_w, double sign, double res = 0.02)
 {
     // Seat
     addBoxBounds(cloud, cx - w/2.0, cx + w/2.0, cy - d/2.0, cy + d/2.0, z_bottom + h_seat - top_t, z_bottom + h_seat, res);
     
-    // Backrest (approx)
-    addBoxBounds(cloud, cx - w/2.0, cx + w/2.0, cy + d/2.0 - top_t, cy + d/2.0, z_bottom + h_seat, z_bottom + h_total, res);
+    // Backrest (outer wall facing: Red = -X, Blue = +X)
+    double bx0 = (sign < 0.0) ? (cx - w/2.0) : (cx + w/2.0 - top_t);
+    double bx1 = (sign < 0.0) ? (cx - w/2.0 + top_t) : (cx + w/2.0);
+    addBoxBounds(cloud, bx0, bx1, cy - d/2.0, cy + d/2.0, z_bottom + h_seat, z_bottom + h_total, res);
     
     // 4 legs
-    double lx_min = cx - w/2.0;
-    double lx_max = cx + w/2.0 - leg_w;
-    double ly_min = cy - d/2.0;
-    double ly_max = cy + d/2.0 - leg_w;
-    
+    double lx_min = cx - w/2.0, lx_max = cx + w/2.0 - leg_w;
+    double ly_min = cy - d/2.0, ly_max = cy + d/2.0 - leg_w;
     addBoxBounds(cloud, lx_min, lx_min + leg_w, ly_min, ly_min + leg_w, z_bottom, z_bottom + h_seat - top_t, res);
     addBoxBounds(cloud, lx_min, lx_min + leg_w, ly_max, ly_max + leg_w, z_bottom, z_bottom + h_seat - top_t, res);
     addBoxBounds(cloud, lx_max, lx_max + leg_w, ly_min, ly_min + leg_w, z_bottom, z_bottom + h_seat - top_t, res);
@@ -238,6 +244,24 @@ void addCylinder(Cloud& cloud, double cx, double cy, double cz,
     }
 }
 
+// Generate complete flag assembly (Base plate + Pole + 600x1800 Flag cloth)
+void addFlag(Cloud& cloud, double cx, double cy, double res = 0.02)
+{
+    using namespace cad2026::official;
+    using namespace cad2026::lidar_model;
+
+    // 1. 土台 (450 x 450 x 50mm)
+    addBox(cloud, cx, cy, FLAG_BASE_THICKNESS / 2.0, FLAG_BASE_X, FLAG_BASE_Y, FLAG_BASE_THICKNESS, res);
+
+    // 2. 支柱 (φ40mm, Z = 0.05m ~ 3.00m)
+    addCylinder(cloud, cx, cy, FLAG_BASE_THICKNESS + (FLAG_TOTAL_H - FLAG_BASE_THICKNESS) / 2.0,
+                FLAG_POLE_RADIUS, FLAG_TOTAL_H - FLAG_BASE_THICKNESS, res);
+
+    // 3. 旗布 (600x1800mm, Z = 1.20m ~ 3.00m)
+    addBox(cloud, cx, cy, FLAG_BOTTOM_Z + FLAG_HEIGHT / 2.0,
+           FLAG_CLOTH_THICKNESS, FLAG_WIDTH, FLAG_HEIGHT, res);
+}
+
 // Build all objects for one side of the field (Red or Blue)
 void buildSide(Cloud& cloud, double sign, double res)
 {
@@ -248,12 +272,9 @@ void buildSide(Cloud& cloud, double sign, double res)
     // 手前中央水平列 (Y = 0.000)
     addHollowChair(cloud, sign * CHAIR_X_ABS, CHAIR_Y, 0.0,
                    CHAIR_PRODUCT_X, CHAIR_PRODUCT_Y, CHAIR_PRODUCT_H, CHAIR_PRODUCT_SH, 
-                   CHAIR_TOP_THICKNESS, CHAIR_LEG_WIDTH, res);
+                   CHAIR_TOP_THICKNESS, CHAIR_LEG_WIDTH, sign, res);
 
-    addBox(cloud, sign * FLAG_X_ABS, FLAG_Y, FLAG_BASE_THICKNESS / 2.0,
-           FLAG_SHEET_W, FLAG_SHEET_W, FLAG_BASE_THICKNESS, res);
-    addCylinder(cloud, sign * FLAG_X_ABS, FLAG_Y, FLAG_BASE_THICKNESS + (FLAG_TOTAL_H - FLAG_BASE_THICKNESS) / 2.0,
-                FLAG_POLE_RADIUS, FLAG_TOTAL_H - FLAG_BASE_THICKNESS, res);
+    addFlag(cloud, sign * FLAG_X_ABS, FLAG_Y, res);
 
     addCylinder(cloud, sign * BUCKET1_X_ABS, BUCKET1_Y, BUCKET_H / 2.0,
                 BUCKET_R, BUCKET_H, res);
