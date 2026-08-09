@@ -58,6 +58,7 @@ namespace official
     constexpr double FLAG_HEIGHT  = 1.800;
     constexpr double FLAG_TOTAL_H = 3.000;
     constexpr double FLAG_BOTTOM_Z = FLAG_TOTAL_H - FLAG_HEIGHT; // 1.200m
+    constexpr double FLAG_CROSSBAR_W = 0.600;                     // 最上部横棒幅
 }
 
 // =========================================================================
@@ -110,6 +111,9 @@ namespace lidar_model
     constexpr double FLAG_POLE_RADIUS = 0.020;
     constexpr double FLAG_CLOTH_THICKNESS = 0.020;
     constexpr double FLAG_BASE_THICKNESS = 0.050;
+    
+    // LiDAR model approximation; crossbar section not dimensioned
+    constexpr double FLAG_CROSSBAR_T = 0.020;
 }
 
 // =========================================================================
@@ -244,7 +248,7 @@ void addCylinder(Cloud& cloud, double cx, double cy, double cz,
     }
 }
 
-// Generate complete flag assembly (Base plate + Pole + 600x1800 Flag cloth)
+// Generate complete flag assembly (Base plate + Pole + 600x1800 Flag cloth + Top 600mm Crossbar)
 void addFlag(Cloud& cloud, double cx, double cy, double res = 0.02)
 {
     using namespace cad2026::official;
@@ -260,6 +264,10 @@ void addFlag(Cloud& cloud, double cx, double cy, double res = 0.02)
     // 3. 旗布 (600x1800mm, Z = 1.20m ~ 3.00m)
     addBox(cloud, cx, cy, FLAG_BOTTOM_Z + FLAG_HEIGHT / 2.0,
            FLAG_CLOTH_THICKNESS, FLAG_WIDTH, FLAG_HEIGHT, res);
+
+    // 4. 最上部横棒 (600mm, Z = 3.00m)
+    addBox(cloud, cx, cy, FLAG_TOTAL_H - FLAG_CROSSBAR_T / 2.0,
+           FLAG_CROSSBAR_T, FLAG_CROSSBAR_W, FLAG_CROSSBAR_T, res);
 }
 
 // Build all objects for one side of the field (Red or Blue)
