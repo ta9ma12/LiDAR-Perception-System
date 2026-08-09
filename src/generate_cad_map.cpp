@@ -248,8 +248,8 @@ void addCylinder(Cloud& cloud, double cx, double cy, double cz,
     }
 }
 
-// Generate complete flag assembly (Base plate + Pole + 600x1800 Flag cloth + Top 600mm Crossbar along X-axis)
-void addFlag(Cloud& cloud, double cx, double cy, double sign, double res = 0.02)
+// Generate complete flag assembly (Base plate + Pole + 600x1800 Flag cloth + Top 600mm Crossbar extending in +Y)
+void addFlag(Cloud& cloud, double cx, double cy, double res = 0.02)
 {
     using namespace cad2026::official;
     using namespace cad2026::lidar_model;
@@ -258,22 +258,20 @@ void addFlag(Cloud& cloud, double cx, double cy, double sign, double res = 0.02)
     addBox(cloud, cx, cy, FLAG_BASE_THICKNESS / 2.0, FLAG_BASE_X, FLAG_BASE_Y, FLAG_BASE_THICKNESS, res);
 
     // 2. 支柱 (φ40mm, Z = 0.05m ~ 3.00m)
-    const double pole_z0 = FLAG_BASE_THICKNESS;
-    const double pole_z1 = FLAG_TOTAL_H;
-    addCylinder(cloud, cx, cy, (pole_z0 + pole_z1) / 2.0, FLAG_POLE_RADIUS, pole_z1 - pole_z0, res);
+    addCylinder(cloud, cx, cy, FLAG_BASE_THICKNESS + (FLAG_TOTAL_H - FLAG_BASE_THICKNESS) / 2.0,
+                FLAG_POLE_RADIUS, FLAG_TOTAL_H - FLAG_BASE_THICKNESS, res);
 
-    // 3. フィールド中央方向（X軸）へ伸びる旗範囲の算定 (Red -> +X, Blue -> -X)
-    double flag_x0 = (sign < 0.0) ? cx : (cx - FLAG_WIDTH);
-    double flag_x1 = (sign < 0.0) ? (cx + FLAG_WIDTH) : cx;
+    // 3. 支柱 cy から +Y 方向へ 600mm 伸びる Y範囲の算出
+    const double flag_y0 = cy;
+    const double flag_y1 = cy + FLAG_WIDTH;
 
-    // 4. 旗布 (X=600mm, Y=20mm(厚み), Z=1800mm, Z=1.20m~3.00m)
-    addBox(cloud, (flag_x0 + flag_x1) / 2.0, cy, FLAG_BOTTOM_Z + FLAG_HEIGHT / 2.0,
-           FLAG_WIDTH, FLAG_CLOTH_THICKNESS, FLAG_HEIGHT, res);
+    // 4. 旗布 (X=20mm(厚み), Y=600mm, Z=1800mm, Z=1.20m~3.00m)
+    addBox(cloud, cx, (flag_y0 + flag_y1) / 2.0, FLAG_BOTTOM_Z + FLAG_HEIGHT / 2.0,
+           FLAG_CLOTH_THICKNESS, FLAG_WIDTH, FLAG_HEIGHT, res);
 
-    // 5. 最上部横棒 (X=600mm, Y=20mm, Z=20mm, Z=3.00m最頂部)
-    const double crossbar_z = FLAG_TOTAL_H - FLAG_CROSSBAR_T / 2.0;
-    addBox(cloud, (flag_x0 + flag_x1) / 2.0, cy, crossbar_z,
-           FLAG_WIDTH, FLAG_CROSSBAR_T, FLAG_CROSSBAR_T, res);
+    // 5. 最上部横棒 (X=20mm, Y=600mm, Z=20mm, Z=3.00m最頂部)
+    addBox(cloud, cx, (flag_y0 + flag_y1) / 2.0, FLAG_TOTAL_H - FLAG_CROSSBAR_T / 2.0,
+           FLAG_CROSSBAR_T, FLAG_CROSSBAR_W, FLAG_CROSSBAR_T, res);
 }
 
 // Build all objects for one side of the field (Red or Blue)
@@ -288,7 +286,7 @@ void buildSide(Cloud& cloud, double sign, double res)
                    CHAIR_PRODUCT_X, CHAIR_PRODUCT_Y, CHAIR_PRODUCT_H, CHAIR_PRODUCT_SH, 
                    CHAIR_TOP_THICKNESS, CHAIR_LEG_WIDTH, sign, res);
 
-    addFlag(cloud, sign * FLAG_X_ABS, FLAG_Y, sign, res);
+    addFlag(cloud, sign * FLAG_X_ABS, FLAG_Y, res);
 
     addCylinder(cloud, sign * BUCKET1_X_ABS, BUCKET1_Y, BUCKET_H / 2.0,
                 BUCKET_R, BUCKET_H, res);
