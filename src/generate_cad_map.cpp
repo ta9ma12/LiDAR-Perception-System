@@ -248,7 +248,7 @@ void addCylinder(Cloud& cloud, double cx, double cy, double cz,
     }
 }
 
-// Generate complete flag assembly (Base plate + Pole + 600x1800 Flag cloth + Top 600mm Crossbar extending in +Y)
+// Generate complete flag assembly (Base plate + Pole + 600x1800 Flag cloth + Top 600mm Crossbar extending in -Y direction)
 void addFlag(Cloud& cloud, double cx, double cy, double res = 0.02)
 {
     using namespace cad2026::official;
@@ -261,9 +261,9 @@ void addFlag(Cloud& cloud, double cx, double cy, double res = 0.02)
     addCylinder(cloud, cx, cy, FLAG_BASE_THICKNESS + (FLAG_TOTAL_H - FLAG_BASE_THICKNESS) / 2.0,
                 FLAG_POLE_RADIUS, FLAG_TOTAL_H - FLAG_BASE_THICKNESS, res);
 
-    // 3. 支柱 cy から +Y 方向へ 600mm 伸びる Y範囲の算出
-    const double flag_y0 = cy;
-    const double flag_y1 = cy + FLAG_WIDTH;
+    // 3. 支柱 cy から -Y 方向へ 600mm 伸びる Y範囲の算出
+    const double flag_y0 = cy - FLAG_WIDTH;
+    const double flag_y1 = cy;
 
     // 4. 旗布 (X=20mm(厚み), Y=600mm, Z=1800mm, Z=1.20m~3.00m)
     addBox(cloud, cx, (flag_y0 + flag_y1) / 2.0, FLAG_BOTTOM_Z + FLAG_HEIGHT / 2.0,
