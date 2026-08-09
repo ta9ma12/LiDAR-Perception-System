@@ -58,8 +58,7 @@ dynamic_obj_detector:
     min_cluster_size: 20
     max_cluster_size: 10000
     input_topic: "/livox/lidar"
-    target_frame: "map"
-    map_pcd_path: "/home/lambda/ros2_ws/src/LiDAR-Perception-System/maps/robocon2026_field.pcd"
+    map_pcd_path: ""                # 静的マップPCDのパス (空文字列の場合はパッケージのmaps/robocon2026_field.pcdを自動参照)
 
     # ポリカバケツ透過問題対策 (フォールバック処理)
     enable_clear_bucket_fallback: true

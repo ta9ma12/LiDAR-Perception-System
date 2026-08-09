@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <ament_index_cpp/get_package_share_directory.hpp>
 
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl/io/pcd_io.h>
@@ -41,6 +42,15 @@ DynamicObjDetector::DynamicObjDetector(const rclcpp::NodeOptions & options)
 
   if (!map_pcd_path_.empty()) {
     loadMapPcd(map_pcd_path_);
+  } else {
+    // Default fallback to package share directory maps/robocon2026_field.pcd
+    try {
+      std::string pkg_share = ament_index_cpp::get_package_share_directory("lidar_perception_system");
+      std::string default_pcd = (std::filesystem::path(pkg_share) / "maps" / "robocon2026_field.pcd").string();
+      loadMapPcd(default_pcd);
+    } catch (const std::exception & e) {
+      RCLCPP_WARN(this->get_logger(), "Failed to locate package share directory: %s", e.what());
+    }
   }
 
   RCLCPP_INFO(this->get_logger(), "DynamicObjDetector initialized.");
@@ -68,14 +78,28 @@ void DynamicObjDetector::loadParameters()
 
 bool DynamicObjDetector::loadMapPcd(const std::string & pcd_path)
 {
-  if (!std::filesystem::exists(pcd_path)) {
+  std::string target_path = pcd_path;
+
+  if (!std::filesystem::exists(target_path)) {
+    // Try resolving relative to package share directory
+    try {
+      std::string pkg_share = ament_index_cpp::get_package_share_directory("lidar_perception_system");
+      std::string share_pcd = (std::filesystem::path(pkg_share) / "maps" / "robocon2026_field.pcd").string();
+      if (std::filesystem::exists(share_pcd)) {
+        RCLCPP_INFO(this->get_logger(), "Resolved map PCD path to package share: %s", share_pcd.c_str());
+        target_path = share_pcd;
+      }
+    } catch (const std::exception &) {}
+  }
+
+  if (!std::filesystem::exists(target_path)) {
     RCLCPP_WARN(this->get_logger(), "Static map PCD path does not exist: %s", pcd_path.c_str());
     has_map_ = false;
     return false;
   }
 
-  if (pcl::io::loadPCDFile<pcl::PointXYZ>(pcd_path, *map_cloud_) == -1) {
-    RCLCPP_ERROR(this->get_logger(), "Failed to load static map PCD file: %s", pcd_path.c_str());
+  if (pcl::io::loadPCDFile<pcl::PointXYZ>(target_path, *map_cloud_) == -1) {
+    RCLCPP_ERROR(this->get_logger(), "Failed to load static map PCD file: %s", target_path.c_str());
     has_map_ = false;
     return false;
   }

@@ -10,6 +10,7 @@ def generate_launch_description():
     pkg_share = get_package_share_directory('lidar_perception_system')
     default_config_path = os.path.join(pkg_share, 'config', 'perception_params.yaml')
     default_rviz_path = os.path.join(pkg_share, 'rviz', 'perception_debug.rviz')
+    default_map_pcd_path = os.path.join(pkg_share, 'maps', 'robocon2026_field.pcd')
 
     # Launch arguments
     config_file_arg = DeclareLaunchArgument(
@@ -42,11 +43,18 @@ def generate_launch_description():
         description='Path to RViz2 configuration file'
     )
 
+    map_pcd_path_arg = DeclareLaunchArgument(
+        'map_pcd_path',
+        default_value=default_map_pcd_path,
+        description='Path to static map PCD file'
+    )
+
     config_file = LaunchConfiguration('config_file')
     use_dummy = LaunchConfiguration('use_dummy_publisher')
     use_rviz = LaunchConfiguration('use_rviz')
     rviz_config = LaunchConfiguration('rviz_config')
     localization_type = LaunchConfiguration('localization_type')
+    map_pcd_path = LaunchConfiguration('map_pcd_path')
 
     # Nodes
     static_detector_node = Node(
@@ -62,7 +70,7 @@ def generate_launch_description():
         executable='dynamic_obj_detector',
         name='dynamic_obj_detector',
         output='screen',
-        parameters=[config_file]
+        parameters=[config_file, {'map_pcd_path': map_pcd_path}]
     )
 
     dummy_publisher_node = Node(
@@ -92,6 +100,7 @@ def generate_launch_description():
         use_dummy_arg,
         use_rviz_arg,
         rviz_config_arg,
+        map_pcd_path_arg,
         log_localization,
         static_detector_node,
         dynamic_detector_node,

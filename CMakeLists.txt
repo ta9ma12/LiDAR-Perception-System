@@ -21,6 +21,7 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(tf2_sensor_msgs REQUIRED)
 find_package(pcl_conversions REQUIRED)
 find_package(pcl_ros REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 
 # Find PCL
 find_package(PCL REQUIRED COMPONENTS common io filters segmentation search kdtree)
@@ -61,6 +62,7 @@ ament_target_dependencies(dynamic_obj_detector
   tf2_sensor_msgs
   pcl_conversions
   pcl_ros
+  ament_index_cpp
 )
 target_link_libraries(dynamic_obj_detector ${PCL_LIBRARIES})
 
