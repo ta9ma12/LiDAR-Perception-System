@@ -196,8 +196,12 @@ public:
     grid_config_.max_z = bounds.at("max_z").get<float>();
     grid_config_.resolution = bounds.at("resolution").get<float>();
     grid_config_.self_radius = bounds.at("self_radius").get<float>();
+    support_min_z_ = bounds.at("support_min_z").get<float>();
+    support_max_z_ = bounds.at("support_max_z").get<float>();
+    support_self_radius_ = bounds.at("support_self_radius").get<float>();
     if (grid_config_.resolution <= 0.0F || grid_config_.min_x >= grid_config_.max_x ||
-      grid_config_.min_y >= grid_config_.max_y || grid_config_.min_z >= grid_config_.max_z) {
+      grid_config_.min_y >= grid_config_.max_y || grid_config_.min_z >= grid_config_.max_z ||
+      support_min_z_ >= support_max_z_ || support_self_radius_ < 0.0F) {
       throw std::runtime_error("Invalid grid bounds");
     }
     grid_config_.width = static_cast<int>(std::ceil(
@@ -222,7 +226,8 @@ public:
     queue_size_ = config.at("queue_size").get<size_t>();
     publish_tf_ = config.at("publish_tf").get<bool>();
     const auto max_bytes = config.at("max_input_bytes").get<size_t>();
-    if (radius_ <= 0.0 || gate_ <= 0.0 || queue_size_ == 0 || queue_size_ > 32 ||
+    if (radius_ <= 0.0 || support_target_z_ <= 0.0 || gate_ <= 0.0 ||
+      queue_size_ == 0 || queue_size_ > 32 ||
       max_bytes < 1024 || max_bytes > 128 * 1024 * 1024) {
       throw std::runtime_error("Invalid detector configuration");
     }
@@ -316,6 +321,11 @@ private:
     }
     auto cloud = oldest.cloud;
     queue_.pop_front();
+    last_tf_wait_ms_ = age * 1000.0;
+    tf_wait_samples_.push_back(last_tf_wait_ms_);
+    if (tf_wait_samples_.size() > 1000) {
+      tf_wait_samples_.pop_front();
+    }
     const auto started = std::chrono::steady_clock::now();
     try {
       process_cloud(*cloud, transform);
@@ -327,6 +337,10 @@ private:
     }
     last_processing_ms_ = std::chrono::duration<double, std::milli>(
       std::chrono::steady_clock::now() - started).count();
+    processing_samples_.push_back(last_processing_ms_);
+    if (processing_samples_.size() > 1000) {
+      processing_samples_.pop_front();
+    }
   }
 
   void process_cloud(const CloudMsg & cloud, const geometry_msgs::msg::TransformStamped & tf)
@@ -362,9 +376,9 @@ private:
       static_cast<size_t>(cloud.width) * cloud.height, cloud.point_step,
       cloud.row_step, cloud.width, x_offset, y_offset, z_offset, m, grid_config_);
     auto support_grid_config = grid_config_;
-    support_grid_config.min_z = 0.4F;
-    support_grid_config.max_z = 1.1F;
-    support_grid_config.self_radius = 1.0F;
+    support_grid_config.min_z = support_min_z_;
+    support_grid_config.max_z = support_max_z_;
+    support_grid_config.self_radius = support_self_radius_;
     const auto support_grid = gpu_->process(cloud.data.data(), cloud.data.size(),
       static_cast<size_t>(cloud.width) * cloud.height, cloud.point_step,
       cloud.row_step, cloud.width, x_offset, y_offset, z_offset, m, support_grid_config);
@@ -425,8 +439,9 @@ private:
       } else {
         const Eigen::Matrix<double, 2, 4> h = (Eigen::Matrix<double, 2, 4>() <<
           1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0).finished();
-        const Eigen::Matrix2d r = Eigen::Matrix2d::Identity() *
-          std::max(0.0025, selected->residual * selected->residual * 4.0);
+        const double observation_variance = source_mode == TrackMsg::SUPPORT_INFERRED ?
+          0.04 : std::max(0.0025, selected->residual * selected->residual * 4.0);
+        const Eigen::Matrix2d r = Eigen::Matrix2d::Identity() * observation_variance;
         const Eigen::Matrix2d s = h * covariance_ * h.transpose() + r;
         const Eigen::Matrix<double, 4, 2> k = covariance_ * h.transpose() * s.inverse();
         state_ += k * (selected->xy - h * state_);
@@ -475,7 +490,7 @@ private:
           output.state_covariance[order[r] * 6 + order[c]] = covariance_(r, c);
         }
       }
-      output.state_covariance[2 * 6 + 2] = 0.04;
+      output.state_covariance[2 * 6 + 2] = mode == TrackMsg::DIRECT ? 0.04 : 0.25;
       output.state_covariance[5 * 6 + 5] = 1.0;
       output.confidence = mode == TrackMsg::DIRECT ?
         static_cast<float>(std::clamp(1.0 - last_residual_ / max_residual_, 0.0, 1.0)) :
@@ -494,6 +509,17 @@ private:
       transform.transform.rotation.w = 1.0;
       tf_broadcaster_->sendTransform(transform);
     }
+  }
+
+  static double percentile95(const std::deque<double> & samples)
+  {
+    if (samples.empty()) {
+      return 0.0;
+    }
+    std::vector<double> sorted(samples.begin(), samples.end());
+    const size_t index = static_cast<size_t>(0.95 * (sorted.size() - 1));
+    std::nth_element(sorted.begin(), sorted.begin() + index, sorted.end());
+    return sorted[index];
   }
 
   void publish_diagnostics()
@@ -519,11 +545,16 @@ private:
     value("queue_drops", queue_drops_);
     value("processing_errors", processing_errors_);
     value("last_processing_ms", last_processing_ms_);
+    value("processing_p95_ms", percentile95(processing_samples_));
+    value("processing_max_ms", processing_samples_.empty() ? 0.0 :
+      *std::max_element(processing_samples_.begin(), processing_samples_.end()));
+    value("tf_wait_p95_ms", percentile95(tf_wait_samples_));
     array.status.push_back(status);
     diagnostic_pub_->publish(array);
   }
 
   lps::GridConfig grid_config_;
+  float support_min_z_{0.4F}, support_max_z_{1.1F}, support_self_radius_{1.0F};
   lps::SupportTracker support_tracker_;
   std::unique_ptr<lps::CudaGrid> gpu_;
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
@@ -542,7 +573,8 @@ private:
   double radius_{0.1365}, max_residual_{0.055}, min_arc_{1.2}, gate_{0.65};
   double prediction_s_{0.3}, reset_s_{1.0}, tf_wait_s_{0.2};
   double last_input_stamp_{0.0}, last_observation_{0.0}, state_stamp_{0.0}, z_{0.0};
-  double last_residual_{0.0}, last_processing_ms_{0.0};
+  double last_residual_{0.0}, last_processing_ms_{0.0}, last_tf_wait_ms_{0.0};
+  std::deque<double> processing_samples_, tf_wait_samples_;
   unsigned int min_points_{18}, last_points_{0}, track_id_{0};
   int min_cells_{5}, confirm_hits_{3}, hits_{0};
   size_t queue_size_{5}, max_bytes_{8 * 1024 * 1024};
