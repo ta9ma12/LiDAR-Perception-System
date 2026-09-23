@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "input_topic": "/livox/lidar",
+  "target_frame": "map",
+  "grid": {
+    "min_x": -5.8,
+    "max_x": 5.8,
+    "min_y": -5.8,
+    "max_y": 5.8,
+    "min_z": 1.05,
+    "max_z": 1.95,
+    "resolution": 0.08,
+    "self_radius": 0.65
+  },
+  "bucket": {
+    "radius": 0.1365,
+    "min_points": 18,
+    "min_cells": 5,
+    "max_fit_residual": 0.055,
+    "min_arc_span_rad": 1.2
+  },
+  "tracking": {
+    "gate_m": 0.65,
+    "confirm_hits": 3,
+    "max_prediction_s": 0.3,
+    "reset_s": 1.0
+  },
+  "tf_wait_s": 0.2,
+  "queue_size": 5,
+  "max_input_bytes": 8388608,
+  "publish_tf": false
+}
