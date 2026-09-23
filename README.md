@@ -36,17 +36,19 @@ bagは`.db3`ファイル単体ではなく、`metadata.yaml`を含む**rosbagデ
 ```bash
 source /opt/ros/humble/setup.bash
 source ~/ros2_ws/install/setup.bash
-ros2 launch lidar_perception_system moving_bucket_rviz.launch.py use_sim_time:=true
+ros2 launch lidar_perception_system moving_bucket_rviz.launch.py use_sim_time:=true bag_path:=/absolute/path/to/rosbag.db3
 ```
 
-ターミナル2で、最初からbagを再生します。
+`bag_path`には再生する`.db3`ファイルまたはそれを含むディレクトリを指定します。このオプションは、途中再生で飛ばされる`/tf_static`を先に読み込んで配信します。`bag_path`なしで冒頭から再生する場合は、bag自身の`/tf_static`を使用できます。
+
+ターミナル2で、同じbagを再生します。
 
 ```bash
 source /opt/ros/humble/setup.bash
-ros2 bag play /absolute/path/to/rosbag_directory --clock
+ros2 bag play /absolute/path/to/rosbag.db3 --clock
 ```
 
-`--clock`と`use_sim_time:=true`は必ず組み合わせてください。収録冒頭の`/tf_static`が必要なため、最初は途中からではなく冒頭から再生してください。途中からの再生では固定TFが失われ、点群や目標が表示されない場合があります。付属ベンチマークはbagの静的TFを再配信します。
+`--clock`と`use_sim_time:=true`は必ず組み合わせてください。今回の決勝bagを試合開始（記録開始から15分36秒）へ飛ばす場合は、上の`ros2 bag play`コマンドに`--start-offset 936`を追加します。`bag_path`を省いて途中再生すると固定TFが失われ、RVizの点群が`Message Filter ... queue is full`で破棄されることがあります。
 
 ## RViz2画面の読み方
 

@@ -48,6 +48,7 @@ if(BUILD_TESTING)
 endif()
 
 install(TARGETS moving_bucket_detector DESTINATION lib/${PROJECT_NAME})
+install(PROGRAMS scripts/replay_static_tf.py DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY launch config rviz DESTINATION share/${PROJECT_NAME})
 ament_export_dependencies(rosidl_default_runtime)
 ament_package()

@@ -34,7 +34,7 @@ Visualization Manager:
       Min Color: 30; 100; 255
       Max Color: 255; 220; 40
       Decay Time: 0
-      Queue Size: 5
+      Queue Size: 30
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Name: Moving Bucket
@@ -45,11 +45,11 @@ Visualization Manager:
         Durability Policy: Volatile
       Queue Size: 10
     - Class: rviz_default_plugins/TF
-      Enabled: false
+      Enabled: true
       Name: TF (optional)
       Show Arrows: true
       Show Axes: true
-      Show Names: true
+      Show Names: false
   Enabled: true
   Global Options:
     Background Color: 25; 25; 35
