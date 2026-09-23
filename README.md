@@ -11,37 +11,67 @@ ROS 2 HumbleとCUDAを使う、相手の移動バケツ専用のLiDAR認識パ�
 ```bash
 cd ~/ros2_ws
 source /opt/ros/humble/setup.bash
-colcon build --packages-select lidar_perception_system --cmake-args -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES=<対象GPUのSM番号>
+colcon build --packages-select lidar_perception_system --cmake-args -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES=89
 source install/setup.bash
 ```
 
 `CMAKE_CUDA_ARCHITECTURES`は対象機のGPUに合わせて指定してください。開発機のRTX 4060 Laptop GPUでは`89`を使用しました。Jetsonの型番を確認せずに`89`を流用しないでください。
 
-## 実行
+## 実機で使う
+
+先にMid-360のドライバと自己位置推定を起動し、`/livox/lidar`と点群時刻に対応する`map → センサフレーム`のTFが配信されていることを確認します。別のターミナルで以下を実行します。
 
 ```bash
-ros2 launch lidar_perception_system moving_bucket.launch.py
-```
-
-設定は[config/moving_bucket.json](config/moving_bucket.json)で指定します。別設定を使う場合:
-
-```bash
-ros2 launch lidar_perception_system moving_bucket.launch.py config_file:=/absolute/path/to/moving_bucket.json
-```
-
-bag再生時はbagの時刻とTFが一致するようにしてください。途中からの再生では、収録冒頭の`/tf_static`が飛ばされる場合があります。付属ベンチマークはbagの静的TFを再配信します。
-
-## RViz2での確認
-
-```bash
+source /opt/ros/humble/setup.bash
+source ~/ros2_ws/install/setup.bash
 ros2 launch lidar_perception_system moving_bucket_rviz.launch.py
 ```
 
-大会bagと一緒に使用する場合は`use_sim_time:=true`を付け、`ros2 bag play /path/to/rosbag_directory --clock`で再生します。固定フレームは設定の`target_frame`と同じ`map`にしてください。bagの途中から再生する場合は`/tf_static`も利用可能にしてください。
+このlaunchは検出ノードとRViz2を**両方**起動します。検出だけを動かす場合は`moving_bucket.launch.py`を使用し、同じ検出ノードを二重起動しないでください。設定は[config/moving_bucket.json](config/moving_bucket.json)です。入力トピックや座標系が異なる場合は設定ファイルをコピーして変更し、`config_file:=/absolute/path/to/moving_bucket.json`をlaunch引数に渡します。
 
-RViz2には元点群、目標位置の円柱、速度矢印、直近100観測の軌跡、状態ラベルが表示されます。緑はバケツ本体の直接観測、橙は支持部からの推定（Zは暫定値）、青は短時間の予測です。目標が無効になると位置マーカーを消し、赤い`NO TARGET`と理由を表示します。状態ラベルの`tf_drops`が増え続けるときは点群時刻に対応するTFを確認してください。TF表示は必要に応じてRViz側で有効にできます。
+## 大会bagをRViz2で確認する
 
-マーカーはRViz等の購読者がいるときだけ生成するため、通常運転時の追加負荷を抑えています。表示が途切れた場合も、点群とマーカーを一緒に見て「未検出」「TF不足」「ノード停止」を区別してください。マーカーの有無だけで認識精度を保証するものではありません。
+bagは`.db3`ファイル単体ではなく、`metadata.yaml`を含む**rosbagディレクトリ**を指定します。まずターミナル1で検出ノードとRViz2を起動します。
+
+```bash
+source /opt/ros/humble/setup.bash
+source ~/ros2_ws/install/setup.bash
+ros2 launch lidar_perception_system moving_bucket_rviz.launch.py use_sim_time:=true
+```
+
+ターミナル2で、最初からbagを再生します。
+
+```bash
+source /opt/ros/humble/setup.bash
+ros2 bag play /absolute/path/to/rosbag_directory --clock
+```
+
+`--clock`と`use_sim_time:=true`は必ず組み合わせてください。収録冒頭の`/tf_static`が必要なため、最初は途中からではなく冒頭から再生してください。途中からの再生では固定TFが失われ、点群や目標が表示されない場合があります。付属ベンチマークはbagの静的TFを再配信します。
+
+## RViz2画面の読み方
+
+固定フレームは設定の`target_frame`と同じ`map`です。元点群の上に、目標位置の円柱、速度矢印、直近100観測の軌跡、観測状態の文字が表示されます。
+
+- 緑 `DIRECT`: バケツ本体を直接観測。
+- 橙 `SUPPORT / Z inferred`: 支持部から推定。Zは暫定値。
+- 青 `PREDICTED`: 新しい観測がなく、短時間だけ位置を予測。
+- 赤 `NO TARGET`: 有効な目標なし。位置マーカーは削除され、理由と`tf_drops`を表示。
+
+RVizのDisplaysパネルで`PointCloud2 (Livox)`、`Moving Bucket`、必要に応じて`TF (optional)`の表示を切り替えられます。別のターミナルで以下のコマンドを個別に実行してトピックも確認できます。`ros2 topic hz`はCtrl+Cで終了してください。
+
+```bash
+source /opt/ros/humble/setup.bash
+source ~/ros2_ws/install/setup.bash
+ros2 topic hz /livox/lidar
+ros2 topic echo /moving_bucket_detector/target --once
+ros2 topic echo /moving_bucket_detector/diagnostics --once
+```
+
+`target.valid=true`かつ`observation_mode`が`DIRECT`または`SUPPORT_INFERRED`なら観測による追跡です。`PREDICTED`は観測ではありません。`valid=false`の古い位置を照準に使用しないでください。
+
+点群が表示されない場合は、入力トピック、RVizのFixed Frame、`map → センサフレーム`のTF、bag再生時刻を確認します。点群が見えるのに赤い`NO TARGET`が続く場合は、対象が検出条件に入っていない可能性があります。`tf_drops`が増え続ける場合は、点群の時刻に対応するTFが不足しています。状態表示まで消えた場合は検出ノードと入力トピックが動作しているか確認してください。
+
+マーカーはRViz等の購読者がいるときだけ生成します。RVizで位置が見えることは精度保証ではなく、点群との重なりや別途用意した正解データで妥当性を評価してください。
 
 ## 出力
 
@@ -56,6 +86,7 @@ RViz2には元点群、目標位置の円柱、速度矢印、直近100観測の
 ```bash
 source /opt/ros/humble/setup.bash
 source ~/ros2_ws/install/setup.bash
+cd ~/ros2_ws/src/LiDAR-Perception-System
 python3 scripts/benchmark_cuda.py /path/to/rosbag_directory --offset 0 --seconds 275 --output /tmp/lps_benchmark.json
 ```
 
