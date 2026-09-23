@@ -11,6 +11,7 @@
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_broadcaster.h>
 #include <tf2_ros/transform_listener.h>
+#include <visualization_msgs/msg/marker_array.hpp>
 
 #include <Eigen/Dense>
 #include <nlohmann/json.hpp>
@@ -238,6 +239,7 @@ public:
     tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(this);
     target_pub_ = create_publisher<TrackMsg>("~/target", 10);
     diagnostic_pub_ = create_publisher<diagnostic_msgs::msg::DiagnosticArray>("~/diagnostics", 10);
+    marker_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("~/markers", 10);
     static_tf_sub_ = create_subscription<tf2_msgs::msg::TFMessage>("/tf_static",
       rclcpp::QoS(1).transient_local().reliable(),
       [this](const tf2_msgs::msg::TFMessage::SharedPtr msg) {
@@ -460,12 +462,14 @@ private:
     const bool confirmed = has_track_ && hits_ >= confirm_hits_;
     const bool predicted = confirmed && !selected && stamp - last_observation_ <= prediction_s_;
     const bool valid = confirmed && (selected || predicted);
+    last_status_reason_ = valid ? "" : "unconfirmed / no candidate";
     publish_track(header, valid, predicted ? TrackMsg::PREDICTED :
       (selected && confirmed ? source_mode : TrackMsg::NONE));
   }
 
-  void publish_invalid(const std_msgs::msg::Header & header, const std::string &)
+  void publish_invalid(const std_msgs::msg::Header & header, const std::string & reason)
   {
+    last_status_reason_ = reason;
     publish_track(header, false, TrackMsg::NONE);
   }
 
@@ -499,6 +503,9 @@ private:
       output.fit_residual = static_cast<float>(last_residual_);
     }
     target_pub_->publish(output);
+    if (marker_pub_->get_subscription_count() > 0) {
+      publish_markers(output);
+    }
     if (valid && mode == TrackMsg::DIRECT && publish_tf_) {
       geometry_msgs::msg::TransformStamped transform;
       transform.header = output.header;
@@ -509,6 +516,113 @@ private:
       transform.transform.rotation.w = 1.0;
       tf_broadcaster_->sendTransform(transform);
     }
+  }
+
+  void publish_markers(const TrackMsg & track)
+  {
+    using Marker = visualization_msgs::msg::Marker;
+    visualization_msgs::msg::MarkerArray array;
+    const auto make_marker = [&track](int id, int type) {
+      Marker marker;
+      marker.header = track.header;
+      marker.ns = "moving_bucket_detector";
+      marker.id = id;
+      marker.type = type;
+      marker.action = Marker::ADD;
+      marker.pose.orientation.w = 1.0;
+      marker.lifetime.nanosec = 500000000;
+      return marker;
+    };
+    const auto delete_marker = [&array, &make_marker](int id, int type) {
+      auto marker = make_marker(id, type);
+      marker.action = Marker::DELETE;
+      array.markers.push_back(marker);
+    };
+    if (!track.valid) {
+      trail_.clear();
+      delete_marker(0, Marker::CYLINDER);
+      delete_marker(1, Marker::ARROW);
+      delete_marker(2, Marker::LINE_STRIP);
+      delete_marker(3, Marker::TEXT_VIEW_FACING);
+    } else {
+      const bool direct = track.observation_mode == TrackMsg::DIRECT;
+      const bool predicted = track.observation_mode == TrackMsg::PREDICTED;
+      const float red = direct ? 0.15F : (predicted ? 0.25F : 1.0F);
+      const float green = direct ? 0.95F : (predicted ? 0.55F : 0.7F);
+      const float blue = direct ? 0.25F : (predicted ? 1.0F : 0.1F);
+      auto target = make_marker(0, Marker::CYLINDER);
+      target.pose.position = track.position;
+      target.scale.x = radius_ * 2.0;
+      target.scale.y = radius_ * 2.0;
+      target.scale.z = 0.12;
+      target.color.r = red;
+      target.color.g = green;
+      target.color.b = blue;
+      target.color.a = predicted ? 0.4F : 0.8F;
+      array.markers.push_back(target);
+
+      if (track.track_id != visual_track_id_) {
+        trail_.clear();
+        visual_track_id_ = track.track_id;
+      }
+      if (!predicted) {
+        trail_.push_back(track.position);
+        if (trail_.size() > 100) {
+          trail_.pop_front();
+        }
+      }
+      auto history = make_marker(2, Marker::LINE_STRIP);
+      history.scale.x = 0.025;
+      history.color.r = red;
+      history.color.g = green;
+      history.color.b = blue;
+      history.color.a = 0.85F;
+      history.points.assign(trail_.begin(), trail_.end());
+      array.markers.push_back(history);
+
+      const double speed = std::hypot(track.velocity.x, track.velocity.y);
+      if (speed > 0.03) {
+        auto velocity = make_marker(1, Marker::ARROW);
+        velocity.scale.x = 0.035;
+        velocity.scale.y = 0.075;
+        velocity.scale.z = 0.10;
+        velocity.color = target.color;
+        velocity.points.push_back(track.position);
+        auto end = track.position;
+        end.x += track.velocity.x * 0.5;
+        end.y += track.velocity.y * 0.5;
+        velocity.points.push_back(end);
+        array.markers.push_back(velocity);
+      } else {
+        delete_marker(1, Marker::ARROW);
+      }
+      auto label = make_marker(3, Marker::TEXT_VIEW_FACING);
+      label.pose.position = track.position;
+      label.pose.position.z += 0.35;
+      label.scale.z = 0.22;
+      label.color.r = red;
+      label.color.g = green;
+      label.color.b = blue;
+      label.color.a = 1.0F;
+      label.text = "#" + std::to_string(track.track_id) + " " +
+        (direct ? "DIRECT" : (predicted ? "PREDICTED" : "SUPPORT / Z inferred")) +
+        " points=" + std::to_string(track.support_points);
+      array.markers.push_back(label);
+    }
+    auto status = make_marker(4, Marker::TEXT_VIEW_FACING);
+    status.pose.position.x = grid_config_.min_x + 1.4;
+    status.pose.position.y = grid_config_.max_y - 0.5;
+    status.pose.position.z = 2.0;
+    status.scale.z = 0.25;
+    status.color.r = track.valid ? 0.1F : 1.0F;
+    status.color.g = track.valid ? 1.0F : 0.2F;
+    status.color.b = 0.2F;
+    status.color.a = 1.0F;
+    status.text = (track.valid ? "TRACKING" : "NO TARGET: " + last_status_reason_) +
+      " | processed=" + std::to_string(processed_) +
+      " tf_drops=" + std::to_string(tf_drops_);
+    array.markers.push_back(status);
+    marker_pub_->publish(array);
   }
 
   static double percentile95(const std::deque<double> & samples)
@@ -565,9 +679,13 @@ private:
   std::vector<std::pair<std::string, Eigen::Vector3d>> static_exclusions_;
   rclcpp::Publisher<TrackMsg>::SharedPtr target_pub_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diagnostic_pub_;
+  rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
   rclcpp::TimerBase::SharedPtr process_timer_;
   rclcpp::TimerBase::SharedPtr diagnostics_timer_;
   std::deque<QueuedCloud> queue_;
+  std::deque<geometry_msgs::msg::Point> trail_;
+  uint32_t visual_track_id_{0};
+  std::string last_status_reason_;
   std::string target_frame_;
   double support_target_z_{1.2};
   double radius_{0.1365}, max_residual_{0.055}, min_arc_{1.2}, gate_{0.65};

@@ -31,6 +31,18 @@ ros2 launch lidar_perception_system moving_bucket.launch.py config_file:=/absolu
 
 bag再生時はbagの時刻とTFが一致するようにしてください。途中からの再生では、収録冒頭の`/tf_static`が飛ばされる場合があります。付属ベンチマークはbagの静的TFを再配信します。
 
+## RViz2での確認
+
+```bash
+ros2 launch lidar_perception_system moving_bucket_rviz.launch.py
+```
+
+大会bagと一緒に使用する場合は`use_sim_time:=true`を付け、`ros2 bag play /path/to/rosbag_directory --clock`で再生します。固定フレームは設定の`target_frame`と同じ`map`にしてください。bagの途中から再生する場合は`/tf_static`も利用可能にしてください。
+
+RViz2には元点群、目標位置の円柱、速度矢印、直近100観測の軌跡、状態ラベルが表示されます。緑はバケツ本体の直接観測、橙は支持部からの推定（Zは暫定値）、青は短時間の予測です。目標が無効になると位置マーカーを消し、赤い`NO TARGET`と理由を表示します。状態ラベルの`tf_drops`が増え続けるときは点群時刻に対応するTFを確認してください。TF表示は必要に応じてRViz側で有効にできます。
+
+マーカーはRViz等の購読者がいるときだけ生成するため、通常運転時の追加負荷を抑えています。表示が途切れた場合も、点群とマーカーを一緒に見て「未検出」「TF不足」「ノード停止」を区別してください。マーカーの有無だけで認識精度を保証するものではありません。
+
 ## 出力
 
 - `/moving_bucket_detector/target`: `lidar_perception_system/msg/MovingBucketTrack`。位置、速度、共分散、観測状態、validを含みます。

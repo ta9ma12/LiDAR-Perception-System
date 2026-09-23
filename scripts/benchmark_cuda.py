@@ -18,6 +18,7 @@ from rclpy.serialization import deserialize_message
 from geometry_msgs.msg import PointStamped
 from lidar_perception_system.msg import MovingBucketTrack
 from diagnostic_msgs.msg import DiagnosticArray
+from visualization_msgs.msg import Marker, MarkerArray
 from tf2_msgs.msg import TFMessage
 
 
@@ -25,7 +26,9 @@ class Monitor(Node):
     def __init__(self):
         super().__init__("cuda_bag_benchmark")
         self.counts = {"received": 0, "valid": 0, "direct": 0, "predicted": 0,
-                       "invalid": 0, "reference": 0}
+                       "invalid": 0, "reference": 0,
+                       "marker_messages": 0, "marker_target_add": 0,
+                       "marker_target_delete": 0, "marker_status": 0}
         self.outputs = []
         self.references = []
         self.last_diagnostic = {}
@@ -39,6 +42,8 @@ class Monitor(Node):
         self.create_subscription(DiagnosticArray,
                                  "/moving_bucket_detector/diagnostics",
                                  self.on_diagnostic, 10)
+        self.create_subscription(MarkerArray, "/moving_bucket_detector/markers",
+                                 self.on_markers, 10)
 
     @staticmethod
     def stamp(value):
@@ -61,6 +66,16 @@ class Monitor(Node):
         self.counts["reference"] += 1
         self.references.append((self.stamp(msg.header.stamp), msg.point.x,
                                 msg.point.y, msg.point.z))
+
+    def on_markers(self, msg):
+        self.counts["marker_messages"] += 1
+        for marker in msg.markers:
+            if marker.id == 0 and marker.action == Marker.ADD:
+                self.counts["marker_target_add"] += 1
+            elif marker.id == 0 and marker.action == Marker.DELETE:
+                self.counts["marker_target_delete"] += 1
+            elif marker.id == 4 and marker.action == Marker.ADD:
+                self.counts["marker_status"] += 1
 
     def on_diagnostic(self, msg):
         for status in msg.status:
