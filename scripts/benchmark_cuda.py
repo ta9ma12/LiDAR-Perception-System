@@ -5,6 +5,7 @@ import argparse
 import bisect
 import json
 import os
+import secrets
 import sqlite3
 from pathlib import Path
 import signal
@@ -30,8 +31,11 @@ class Monitor(Node):
                        "marker_messages": 0, "marker_target_add": 0,
                        "marker_target_delete": 0, "marker_status": 0}
         self.outputs = []
+        self.target_events = []
+        self.target_trace = []
         self.references = []
         self.last_diagnostic = {}
+        self.diagnostic_trace = []
         self.static_tf_pub = self.create_publisher(TFMessage, "/tf_static",
             QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
                        reliability=ReliabilityPolicy.RELIABLE))
@@ -51,6 +55,11 @@ class Monitor(Node):
 
     def on_target(self, msg):
         self.counts["received"] += 1
+        self.target_events.append((self.stamp(msg.header.stamp), msg.valid,
+                                   msg.observation_mode, msg.track_id))
+        self.target_trace.append((self.stamp(msg.header.stamp), msg.valid,
+                                  msg.observation_mode, msg.track_id,
+                                  msg.position.x, msg.position.y, msg.position.z))
         if msg.valid:
             self.counts["valid"] += 1
             if msg.observation_mode == MovingBucketTrack.DIRECT:
@@ -81,6 +90,8 @@ class Monitor(Node):
         for status in msg.status:
             if status.name == "moving_bucket_detector":
                 self.last_diagnostic = {value.key: value.value for value in status.values}
+                self.diagnostic_trace.append((self.stamp(msg.header.stamp),
+                                              self.last_diagnostic.copy()))
 
 
 def stop(group):
@@ -113,7 +124,29 @@ def compare(outputs, references):
             "within_1m": sum(error <= 1.0 for error in errors)}
 
 
-def detector_pid():
+def continuity(events):
+    if not events:
+        return {"valid_fraction": None, "longest_invalid_run_s": None,
+                "track_ids": 0, "track_switches": 0}
+    valid = sum(event[1] for event in events)
+    ids = [event[3] for event in events if event[1]]
+    longest = 0.0
+    invalid_start = None
+    for stamp, is_valid, _, _ in events:
+        if not is_valid and invalid_start is None:
+            invalid_start = stamp
+        elif is_valid and invalid_start is not None:
+            longest = max(longest, stamp - invalid_start)
+            invalid_start = None
+    if invalid_start is not None:
+        longest = max(longest, events[-1][0] - invalid_start)
+    return {"valid_fraction": valid / len(events),
+            "longest_invalid_run_s": longest,
+            "track_ids": len(set(ids)),
+            "track_switches": sum(a != b for a, b in zip(ids, ids[1:]))}
+
+
+def detector_pid(launch_pid, domain_id):
     for entry in Path("/proc").iterdir():
         if not entry.name.isdigit():
             continue
@@ -121,9 +154,20 @@ def detector_pid():
             args = (entry / "cmdline").read_bytes().split(b"\0")
         except (OSError, PermissionError):
             continue
-        if any(Path(arg.decode(errors="replace")).name == "moving_bucket_detector"
-               for arg in args if arg):
-            return int(entry.name)
+        if not any(Path(arg.decode(errors="replace")).name == "moving_bucket_detector"
+                   for arg in args if arg):
+            continue
+        try:
+            parent_line = next(line for line in (entry / "status").read_text().splitlines()
+                               if line.startswith("PPid:"))
+            environment = (entry / "environ").read_bytes().split(b"\0")
+        except (OSError, PermissionError, StopIteration):
+            continue
+        if int(parent_line.split()[1]) != launch_pid:
+            continue
+        if ("ROS_DOMAIN_ID=" + domain_id).encode() not in environment:
+            continue
+        return int(entry.name)
     return None
 
 
@@ -155,20 +199,26 @@ def main():
     parser.add_argument("--offset", type=float, default=65)
     parser.add_argument("--seconds", type=float, default=50)
     parser.add_argument("--output", type=Path, default=Path("/tmp/lps_cuda_benchmark.json"))
+    parser.add_argument("--include-traces", action="store_true",
+                        help="Save complete target/reference traces to the local output file")
     args = parser.parse_args()
     env = os.environ.copy()
-    env["ROS_LOG_DIR"] = "/tmp/lps_cuda_ros_logs"
+    if not env.get("ROS_DOMAIN_ID"):
+        env["ROS_DOMAIN_ID"] = str(20 + secrets.randbelow(180))
+        os.environ["ROS_DOMAIN_ID"] = env["ROS_DOMAIN_ID"]
+    prefix = f"/tmp/lps_cuda_{os.getpid()}"
+    env["ROS_LOG_DIR"] = prefix + "_ros_logs"
     env["ROS2CLI_DISABLE_DAEMON"] = "1"
     Path(env["ROS_LOG_DIR"]).mkdir(exist_ok=True)
-    with open("/tmp/lps_cuda_launch.log", "w") as launch_log, open(
-            "/tmp/lps_cuda_bag.log", "w") as bag_log:
+    with open(prefix + "_launch.log", "w") as launch_log, open(
+            prefix + "_bag.log", "w") as bag_log:
         launch = subprocess.Popen(
             ["ros2", "launch", "lidar_perception_system", "moving_bucket.launch.py"],
             stdout=launch_log, stderr=subprocess.STDOUT, env=env,
             start_new_session=True)
         rclpy.init()
         monitor = Monitor()
-        database = next(args.bag.glob("*.db3"))
+        database = args.bag if args.bag.is_file() else next(args.bag.glob("*.db3"))
         with sqlite3.connect("file:" + str(database) + "?mode=ro", uri=True) as connection:
             static_rows = connection.execute(
                 "SELECT data FROM messages WHERE topic_id="
@@ -189,7 +239,9 @@ def main():
                 stdout=bag_log, stderr=subprocess.STDOUT, env=env,
                 start_new_session=True)
             end = time.monotonic() + args.seconds
-            pid = detector_pid()
+            pid = detector_pid(launch.pid, env["ROS_DOMAIN_ID"])
+            if pid is None:
+                raise RuntimeError("Benchmark detector process not found in ROS_DOMAIN_ID")
             resource_samples = []
             last_ticks = None
             last_time = None
@@ -215,13 +267,18 @@ def main():
                                     "rss_max_mib": max((row["rss_mib"] for row in resource_samples), default=None),
                                     "gpu_memory_max_mib": max((row["gpu_memory_mib"] for row in resource_samples if row["gpu_memory_mib"] is not None), default=None)},
                       "counts": monitor.counts,
+                      "continuity": continuity(monitor.target_events),
                       "diagnostics": monitor.last_diagnostic,
-                      "first_outputs": monitor.outputs[:8],
-                      "first_references": monitor.references[:8],
                       "reference_comparison_not_ground_truth": compare(
                           monitor.outputs, monitor.references)}
+            if args.include_traces:
+                result["target_trace"] = monitor.target_trace
+                result["reference_trace"] = monitor.references
+                result["diagnostic_trace"] = monitor.diagnostic_trace
             args.output.write_text(json.dumps(result, indent=2) + "\n")
-            print(json.dumps(result, indent=2))
+            summary = {key: value for key, value in result.items()
+                       if key not in ("target_trace", "reference_trace", "diagnostic_trace")}
+            print(json.dumps(summary, indent=2))
         finally:
             if bag is not None:
                 stop(bag)

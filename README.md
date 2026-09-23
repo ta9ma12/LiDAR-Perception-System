@@ -73,6 +73,8 @@ ros2 topic echo /moving_bucket_detector/diagnostics --once
 
 マーカーはRViz等の購読者がいるときだけ生成します。RVizで位置が見えることは精度保証ではなく、点群との重なりや別途用意した正解データで妥当性を評価してください。
 
+追跡済みの支持部候補は短い点群欠測後も速度と位置から再関連付けします。ただし、`PREDICTED`は観測ではなく、既定では最後の実観測から0.3秒までです。TFが長く欠落する、対象がLiDARから隠れるなど新しい観測を得られない間は`valid=false`になります。表示を途切れさせないためだけに予測時間を長くするのは避け、まず自己位置推定の`map → base_link` TFと点群時刻を確認してください。診断の`support_candidate_frames`と`support_association_frames`はそれぞれ支持部候補があった処理フレーム数と支持部仮説が候補を返したフレーム数です（最終追跡での採用件数とは異なります）。
+
 ## 出力
 
 - `/moving_bucket_detector/target`: `lidar_perception_system/msg/MovingBucketTrack`。位置、速度、共分散、観測状態、validを含みます。
@@ -87,7 +89,7 @@ ros2 topic echo /moving_bucket_detector/diagnostics --once
 source /opt/ros/humble/setup.bash
 source ~/ros2_ws/install/setup.bash
 cd ~/ros2_ws/src/LiDAR-Perception-System
-python3 scripts/benchmark_cuda.py /path/to/rosbag_directory --offset 0 --seconds 275 --output /tmp/lps_benchmark.json
+python3 scripts/benchmark_cuda.py /path/to/rosbag_directory --offset 0 --seconds 180 --output /tmp/lps_benchmark.json
 ```
 
-比較対象の`/opponent_robot/bucket_target`は既存アルゴリズムの結果で、正解ラベルではありません。精度の合否には、映像や実測位置に基づく別の正解データが必要です。精度を評価するときは観測不能な区間とTF欠落区間を分けて集計してください。
+ベンチマークにはrosbagディレクトリまたは`.db3`ファイルを直接指定できます。`--offset`は記録開始からの秒数です。`--include-traces`を付けると全座標履歴を出力するため、生成ファイルは機密の大会データとして扱ってください。比較対象の`/opponent_robot/bucket_target`は既存アルゴリズムの結果で、正解ラベルではありません。精度の合否には、映像や実測位置に基づく別の正解データが必要です。精度を評価するときは観測不能な区間とTF欠落区間を分けて集計してください。

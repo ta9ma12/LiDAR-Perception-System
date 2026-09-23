@@ -39,6 +39,14 @@ target_link_libraries(moving_bucket_detector cuda_grid Eigen3::Eigen nlohmann_js
 rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_cpp")
 target_link_libraries(moving_bucket_detector ${cpp_typesupport_target})
 
+include(CTest)
+if(BUILD_TESTING)
+  add_executable(support_tracker_test test/support_tracker_test.cpp)
+  target_include_directories(support_tracker_test PRIVATE include)
+  target_link_libraries(support_tracker_test Eigen3::Eigen)
+  add_test(NAME support_tracker_test COMMAND support_tracker_test)
+endif()
+
 install(TARGETS moving_bucket_detector DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY launch config rviz DESTINATION share/${PROJECT_NAME})
 ament_export_dependencies(rosidl_default_runtime)

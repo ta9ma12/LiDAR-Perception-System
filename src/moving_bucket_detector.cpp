@@ -23,6 +23,7 @@
 #include <fstream>
 #include <limits>
 #include <numeric>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -317,7 +318,14 @@ private:
         auto cloud = oldest.cloud;
         queue_.pop_front();
         ++tf_drops_;
-        publish_invalid(cloud->header, "TF unavailable");
+        // A short TF outage must not erase an otherwise confirmed map track.
+        // The output remains explicitly PREDICTED, never a new observation.
+        if (has_track_ && hits_ >= confirm_hits_ &&
+          stamp_seconds(cloud->header.stamp) - last_observation_ <= prediction_s_) {
+          update_track(cloud->header, {}, TrackMsg::NONE);
+        } else {
+          publish_invalid(cloud->header, "TF unavailable");
+        }
       }
       return;
     }
@@ -384,8 +392,16 @@ private:
     const auto support_grid = gpu_->process(cloud.data.data(), cloud.data.size(),
       static_cast<size_t>(cloud.width) * cloud.height, cloud.point_step,
       cloud.row_step, cloud.width, x_offset, y_offset, z_offset, m, support_grid_config);
+    const double stamp = stamp_seconds(cloud.header.stamp);
+    std::optional<Eigen::Vector2d> hint;
+    if (has_track_ && stamp - last_observation_ <= reset_s_) {
+      const double dt = std::clamp(stamp - state_stamp_, 0.0, 1.5);
+      hint = state_.head<2>() + state_.tail<2>() * dt;
+    }
     const auto support = support_tracker_.observe(support_grid, support_grid_config,
-      stamp_seconds(cloud.header.stamp));
+      stamp, hint);
+    if (support_tracker_.candidate_count() > 0) {++support_candidate_frames_;}
+    if (support) {++support_association_frames_;}
     std::vector<Candidate> candidates;
     uint8_t source_mode = TrackMsg::NONE;
     if (support) {
@@ -396,10 +412,14 @@ private:
       candidate.score = 1.0;
       candidates.push_back(candidate);
       source_mode = TrackMsg::SUPPORT_INFERRED;
-    } else if (has_track_) {
+    } else if (hint) {
       candidates = extract_candidates(cells, grid_config_, radius_, min_points_,
         min_cells_, max_residual_, min_arc_);
-      source_mode = TrackMsg::DIRECT;
+      candidates.erase(std::remove_if(candidates.begin(), candidates.end(),
+        [&hint](const Candidate & candidate) {
+          return candidate.residual > 0.035 || (candidate.xy - *hint).norm() > 0.4;
+        }), candidates.end());
+      if (!candidates.empty()) {source_mode = TrackMsg::DIRECT;}
     }
     update_track(cloud.header, candidates, source_mode);
   }
@@ -408,7 +428,7 @@ private:
     const std::vector<Candidate> & candidates, uint8_t source_mode)
   {
     const double stamp = stamp_seconds(header.stamp);
-    double dt = has_track_ ? std::clamp(stamp - state_stamp_, 0.0, 0.5) : 0.0;
+    double dt = has_track_ ? std::clamp(stamp - state_stamp_, 0.0, 1.5) : 0.0;
     if (has_track_) {
       Eigen::Matrix4d transition = Eigen::Matrix4d::Identity();
       transition(0, 2) = dt;
@@ -426,7 +446,9 @@ private:
     double best = -std::numeric_limits<double>::infinity();
     for (const auto & candidate : candidates) {
       const double distance = has_track_ ? (candidate.xy - state_.head<2>()).norm() : 0.0;
-      if (has_track_ && distance > gate_) {continue;}
+      const double association_gate = std::min(1.3, gate_ +
+        0.5 * std::max(0.0, stamp - last_observation_));
+      if (has_track_ && distance > association_gate) {continue;}
       const double score = candidate.score - 8.0 * distance;
       if (score > best) {best = score; selected = &candidate;}
     }
@@ -655,6 +677,8 @@ private:
     value("received", received_);
     value("processed", processed_);
     value("detections", detections_);
+    value("support_candidate_frames", support_candidate_frames_);
+    value("support_association_frames", support_association_frames_);
     value("tf_drops", tf_drops_);
     value("queue_drops", queue_drops_);
     value("processing_errors", processing_errors_);
@@ -702,6 +726,7 @@ private:
   Eigen::Matrix4d covariance_{Eigen::Matrix4d::Identity()};
   uint64_t received_{0}, processed_{0}, detections_{0}, tf_drops_{0};
   uint64_t queue_drops_{0}, processing_errors_{0};
+  uint64_t support_candidate_frames_{0}, support_association_frames_{0};
 };
 
 int main(int argc, char ** argv)

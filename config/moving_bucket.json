@@ -27,7 +27,7 @@
     "gate_m": 0.65,
     "confirm_hits": 3,
     "max_prediction_s": 0.3,
-    "reset_s": 1.0
+    "reset_s": 2.0
   },
   "tf_wait_s": 0.9,
   "queue_size": 16,

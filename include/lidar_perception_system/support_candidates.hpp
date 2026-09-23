@@ -31,32 +31,51 @@ public:
   }
 
   std::optional<SupportCandidate> observe(
-    const std::vector<GridCell> & grid, const GridConfig & cfg, double stamp)
+    const std::vector<GridCell> & grid, const GridConfig & cfg, double stamp,
+    const std::optional<Eigen::Vector2d> & hint = std::nullopt)
   {
     auto candidates = components(grid, cfg);
     candidates.erase(std::remove_if(candidates.begin(), candidates.end(),
-      [this](const auto & candidate) {
+      [this, &hint](const auto & candidate) {
+        // A locked moving target may pass close to a fixed fixture. Only its
+        // predicted neighborhood can bypass the static exclusion mask.
+        if (locked_id_ != 0 && hint && (candidate.xy - *hint).norm() < 0.45) {
+          return false;
+        }
         for (const auto & exclusion : exclusions_) {
           if ((candidate.xy - exclusion.head<2>()).norm() < exclusion.z()) {return true;}
         }
         return false;
       }), candidates.end());
+    last_candidate_count_ = candidates.size();
     for (auto & track : tracks_) {track.matched = false;}
     for (auto & candidate : candidates) {
       Hypothesis * best = nullptr;
-      double best_distance = 0.55;
+      double best_ratio = 1.0;
       for (auto & track : tracks_) {
-        if (track.matched || stamp - track.last_stamp > 0.5) {continue;}
-        const double distance = (candidate.xy - track.xy).norm();
-        if (distance < best_distance) {
+        const double elapsed = stamp - track.last_stamp;
+        if (track.matched || elapsed < 0.0 || elapsed > 1.5) {continue;}
+        const Eigen::Vector2d predicted = track.xy + track.velocity * elapsed;
+        const double gate = std::min(1.25, 0.55 + 0.55 * elapsed);
+        const double ratio = (candidate.xy - predicted).norm() / gate;
+        // Keep the established target from being stolen by a new hypothesis.
+        const double ranked = track.id == locked_id_ ? ratio * 0.7 : ratio;
+        if (ratio < 1.0 && ranked < best_ratio) {
           best = &track;
-          best_distance = distance;
+          best_ratio = ranked;
         }
       }
       if (best) {
         if (stamp - best->first_stamp > 2.0) {
           best->first_xy = best->xy;
           best->first_stamp = stamp;
+        }
+        const double elapsed = stamp - best->last_stamp;
+        if (elapsed > 0.02) {
+          const Eigen::Vector2d measured = (candidate.xy - best->xy) / elapsed;
+          if (measured.norm() < 3.0) {
+            best->velocity = 0.5 * best->velocity + 0.5 * measured;
+          }
         }
         best->xy = candidate.xy;
         best->points = candidate.points;
@@ -79,10 +98,25 @@ public:
       }
     }
     tracks_.erase(std::remove_if(tracks_.begin(), tracks_.end(),
-      [stamp](const auto & track) {return stamp - track.last_stamp > 1.0;}), tracks_.end());
+      [stamp](const auto & track) {return stamp - track.last_stamp > 2.0;}), tracks_.end());
     if (locked_id_ != 0) {
       for (const auto & candidate : candidates) {
         if (candidate.id == locked_id_) {return candidate;}
+      }
+      if (hint) {
+        const SupportCandidate * recovered = nullptr;
+        double best_distance = 0.55;
+        for (const auto & candidate : candidates) {
+          const double distance = (candidate.xy - *hint).norm();
+          if (distance < best_distance) {
+            best_distance = distance;
+            recovered = &candidate;
+          }
+        }
+        if (recovered) {
+          locked_id_ = recovered->id;
+          return *recovered;
+        }
       }
       for (const auto & track : tracks_) {
         if (track.id == locked_id_) {return std::nullopt;}
@@ -114,13 +148,17 @@ public:
   {
     tracks_.clear();
     locked_id_ = 0;
+    last_candidate_count_ = 0;
   }
+
+  size_t candidate_count() const {return last_candidate_count_;}
 
 private:
   struct Hypothesis
   {
     Eigen::Vector2d xy{0.0, 0.0};
     Eigen::Vector2d first_xy{0.0, 0.0};
+    Eigen::Vector2d velocity{0.0, 0.0};
     unsigned int points{0};
     double first_stamp{0.0};
     double last_stamp{0.0};
@@ -183,6 +221,7 @@ private:
   std::vector<Hypothesis> tracks_;
   int next_id_{1};
   int locked_id_{0};
+  size_t last_candidate_count_{0};
 };
 
 }  // namespace lidar_perception_system
