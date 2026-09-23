@@ -5,6 +5,7 @@ import argparse
 import bisect
 import json
 import os
+import sqlite3
 from pathlib import Path
 import signal
 import subprocess
@@ -12,9 +13,12 @@ import time
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
+from rclpy.serialization import deserialize_message
 from geometry_msgs.msg import PointStamped
 from lidar_perception_system.msg import MovingBucketTrack
 from diagnostic_msgs.msg import DiagnosticArray
+from tf2_msgs.msg import TFMessage
 
 
 class Monitor(Node):
@@ -25,6 +29,9 @@ class Monitor(Node):
         self.outputs = []
         self.references = []
         self.last_diagnostic = {}
+        self.static_tf_pub = self.create_publisher(TFMessage, "/tf_static",
+            QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                       reliability=ReliabilityPolicy.RELIABLE))
         self.create_subscription(MovingBucketTrack, "/moving_bucket_detector/target",
                                  self.on_target, 100)
         self.create_subscription(PointStamped, "/opponent_robot/bucket_target",
@@ -91,6 +98,42 @@ def compare(outputs, references):
             "within_1m": sum(error <= 1.0 for error in errors)}
 
 
+def detector_pid():
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            args = (entry / "cmdline").read_bytes().split(b"\0")
+        except (OSError, PermissionError):
+            continue
+        if any(Path(arg.decode(errors="replace")).name == "moving_bucket_detector"
+               for arg in args if arg):
+            return int(entry.name)
+    return None
+
+
+def process_usage(pid):
+    fields = Path(f"/proc/{pid}/stat").read_text().split()
+    ticks = int(fields[13]) + int(fields[14])
+    lines = Path(f"/proc/{pid}/status").read_text().splitlines()
+    rss = next(int(line.split()[1]) for line in lines if line.startswith("VmRSS:")) / 1024
+    return ticks, rss
+
+
+def gpu_memory(pid):
+    result = subprocess.run(
+        ["nvidia-smi", "--query-compute-apps=pid,used_gpu_memory",
+         "--format=csv,noheader,nounits"],
+        capture_output=True, text=True, timeout=2, check=False)
+    if result.returncode != 0:
+        return None
+    for line in result.stdout.splitlines():
+        parts = [part.strip() for part in line.split(",")]
+        if len(parts) == 2 and parts[0] == str(pid):
+            return float(parts[1])
+    return 0.0
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("bag", type=Path)
@@ -110,6 +153,15 @@ def main():
             start_new_session=True)
         rclpy.init()
         monitor = Monitor()
+        database = next(args.bag.glob("*.db3"))
+        with sqlite3.connect("file:" + str(database) + "?mode=ro", uri=True) as connection:
+            static_rows = connection.execute(
+                "SELECT data FROM messages WHERE topic_id="
+                "(SELECT id FROM topics WHERE name='/tf_static')").fetchall()
+        static_message = TFMessage()
+        for (blob,) in static_rows:
+            static_message.transforms.extend(deserialize_message(blob, TFMessage).transforms)
+        monitor.static_tf_pub.publish(static_message)
         bag = None
         try:
             warmup = time.monotonic() + 3.0
@@ -122,11 +174,35 @@ def main():
                 stdout=bag_log, stderr=subprocess.STDOUT, env=env,
                 start_new_session=True)
             end = time.monotonic() + args.seconds
+            pid = detector_pid()
+            resource_samples = []
+            last_ticks = None
+            last_time = None
+            next_sample = time.monotonic() + 1.0
             while time.monotonic() < end and bag.poll() is None:
                 rclpy.spin_once(monitor, timeout_sec=0.05)
+                now = time.monotonic()
+                if pid is not None and now >= next_sample:
+                    try:
+                        ticks, rss = process_usage(pid)
+                        cpu = (ticks - last_ticks) / os.sysconf("SC_CLK_TCK") / (now - last_time) * 100 if last_ticks is not None else None
+                        resource_samples.append({"cpu_one_core_percent": cpu, "rss_mib": rss,
+                                                 "gpu_memory_mib": gpu_memory(pid)})
+                        last_ticks, last_time = ticks, now
+                    except (OSError, PermissionError):
+                        pass
+                    next_sample += 1.0
+            cpu_values = [row["cpu_one_core_percent"] for row in resource_samples if row["cpu_one_core_percent"] is not None]
             result = {"offset_s": args.offset, "duration_s": args.seconds,
+                      "resources": {"samples": len(resource_samples),
+                                    "cpu_mean": sum(cpu_values) / len(cpu_values) if cpu_values else None,
+                                    "cpu_max": max(cpu_values) if cpu_values else None,
+                                    "rss_max_mib": max((row["rss_mib"] for row in resource_samples), default=None),
+                                    "gpu_memory_max_mib": max((row["gpu_memory_mib"] for row in resource_samples if row["gpu_memory_mib"] is not None), default=None)},
                       "counts": monitor.counts,
                       "diagnostics": monitor.last_diagnostic,
+                      "first_outputs": monitor.outputs[:8],
+                      "first_references": monitor.references[:8],
                       "reference_comparison_not_ground_truth": compare(
                           monitor.outputs, monitor.references)}
             args.output.write_text(json.dumps(result, indent=2) + "\n")

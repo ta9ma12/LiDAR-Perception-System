@@ -1,4 +1,5 @@
 #include "lidar_perception_system/cuda_grid.hpp"
+#include "lidar_perception_system/support_candidates.hpp"
 #include "lidar_perception_system/msg/moving_bucket_track.hpp"
 
 #include <diagnostic_msgs/msg/diagnostic_array.hpp>
@@ -6,6 +7,7 @@
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
+#include <tf2_msgs/msg/tf_message.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_broadcaster.h>
 #include <tf2_ros/transform_listener.h>
@@ -207,6 +209,7 @@ public:
     }
     target_frame_ = config.at("target_frame").get<std::string>();
     radius_ = config.at("bucket").at("radius").get<double>();
+    support_target_z_ = config.at("bucket").at("support_target_z").get<double>();
     min_points_ = config.at("bucket").at("min_points").get<unsigned int>();
     min_cells_ = config.at("bucket").at("min_cells").get<int>();
     max_residual_ = config.at("bucket").at("max_fit_residual").get<double>();
@@ -230,6 +233,35 @@ public:
     tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(this);
     target_pub_ = create_publisher<TrackMsg>("~/target", 10);
     diagnostic_pub_ = create_publisher<diagnostic_msgs::msg::DiagnosticArray>("~/diagnostics", 10);
+    static_tf_sub_ = create_subscription<tf2_msgs::msg::TFMessage>("/tf_static",
+      rclcpp::QoS(1).transient_local().reliable(),
+      [this](const tf2_msgs::msg::TFMessage::SharedPtr msg) {
+        for (const auto & transform : msg->transforms) {
+          if (transform.header.frame_id != target_frame_) {continue;}
+          const auto & child = transform.child_frame_id;
+          double radius = 0.0;
+          if (child.rfind("desk_", 0) == 0) {radius = 0.65;}
+          else if (child.rfind("bucket_", 0) == 0) {radius = 0.45;}
+          else if (child.rfind("flag_", 0) == 0) {radius = 0.50;}
+          if (radius == 0.0) {continue;}
+          bool known = false;
+          for (auto & item : static_exclusions_) {
+            if (item.first == child) {
+              item.second = Eigen::Vector3d(transform.transform.translation.x,
+                transform.transform.translation.y, radius);
+              known = true;
+              break;
+            }
+          }
+          if (!known) {
+            static_exclusions_.push_back({child, Eigen::Vector3d(
+              transform.transform.translation.x, transform.transform.translation.y, radius)});
+          }
+        }
+        std::vector<Eigen::Vector3d> masks;
+        for (const auto & item : static_exclusions_) {masks.push_back(item.second);}
+        support_tracker_.set_exclusions(masks);
+      });
     sub_ = create_subscription<CloudMsg>(config.at("input_topic").get<std::string>(),
       rclcpp::SensorDataQoS(),
       [this](CloudMsg::ConstSharedPtr msg) {on_cloud(std::move(msg));});
@@ -254,6 +286,7 @@ private:
       queue_.clear();
       has_track_ = false;
       hits_ = 0;
+      support_tracker_.reset();
     }
     last_input_stamp_ = stamp;
     if (queue_.size() >= queue_size_) {
@@ -298,8 +331,10 @@ private:
 
   void process_cloud(const CloudMsg & cloud, const geometry_msgs::msg::TransformStamped & tf)
   {
-    if (cloud.is_bigendian || cloud.point_step < 12 || cloud.data.size() > max_bytes_ ||
-      cloud.row_step < cloud.width * cloud.point_step ||
+    if (cloud.width == 0 || cloud.height == 0 || cloud.width > INT32_MAX ||
+      cloud.is_bigendian || cloud.point_step < 12 || cloud.data.size() > max_bytes_ ||
+      static_cast<uint64_t>(cloud.row_step) <
+        static_cast<uint64_t>(cloud.width) * cloud.point_step ||
       static_cast<uint64_t>(cloud.row_step) * cloud.height > cloud.data.size()) {
       throw std::runtime_error("Unsupported or oversized PointCloud2 layout");
     }
@@ -325,13 +360,36 @@ private:
     grid_config_.self_y = static_cast<float>(t.y);
     const auto cells = gpu_->process(cloud.data.data(), cloud.data.size(),
       static_cast<size_t>(cloud.width) * cloud.height, cloud.point_step,
-      x_offset, y_offset, z_offset, m, grid_config_);
-    auto candidates = extract_candidates(cells, grid_config_, radius_, min_points_,
-      min_cells_, max_residual_, min_arc_);
-    update_track(cloud.header, candidates);
+      cloud.row_step, cloud.width, x_offset, y_offset, z_offset, m, grid_config_);
+    auto support_grid_config = grid_config_;
+    support_grid_config.min_z = 0.4F;
+    support_grid_config.max_z = 1.1F;
+    support_grid_config.self_radius = 1.0F;
+    const auto support_grid = gpu_->process(cloud.data.data(), cloud.data.size(),
+      static_cast<size_t>(cloud.width) * cloud.height, cloud.point_step,
+      cloud.row_step, cloud.width, x_offset, y_offset, z_offset, m, support_grid_config);
+    const auto support = support_tracker_.observe(support_grid, support_grid_config,
+      stamp_seconds(cloud.header.stamp));
+    std::vector<Candidate> candidates;
+    uint8_t source_mode = TrackMsg::NONE;
+    if (support) {
+      Candidate candidate;
+      candidate.xy = support->xy;
+      candidate.z = support_target_z_;
+      candidate.points = support->points;
+      candidate.score = 1.0;
+      candidates.push_back(candidate);
+      source_mode = TrackMsg::SUPPORT_INFERRED;
+    } else if (has_track_) {
+      candidates = extract_candidates(cells, grid_config_, radius_, min_points_,
+        min_cells_, max_residual_, min_arc_);
+      source_mode = TrackMsg::DIRECT;
+    }
+    update_track(cloud.header, candidates, source_mode);
   }
 
-  void update_track(const std_msgs::msg::Header & header, const std::vector<Candidate> & candidates)
+  void update_track(const std_msgs::msg::Header & header,
+    const std::vector<Candidate> & candidates, uint8_t source_mode)
   {
     const double stamp = stamp_seconds(header.stamp);
     double dt = has_track_ ? std::clamp(stamp - state_stamp_, 0.0, 0.5) : 0.0;
@@ -388,7 +446,7 @@ private:
     const bool predicted = confirmed && !selected && stamp - last_observation_ <= prediction_s_;
     const bool valid = confirmed && (selected || predicted);
     publish_track(header, valid, predicted ? TrackMsg::PREDICTED :
-      (selected && confirmed ? TrackMsg::DIRECT : TrackMsg::NONE));
+      (selected && confirmed ? source_mode : TrackMsg::NONE));
   }
 
   void publish_invalid(const std_msgs::msg::Header & header, const std::string &)
@@ -420,8 +478,9 @@ private:
       output.state_covariance[2 * 6 + 2] = 0.04;
       output.state_covariance[5 * 6 + 5] = 1.0;
       output.confidence = mode == TrackMsg::DIRECT ?
-        static_cast<float>(std::clamp(1.0 - last_residual_ / max_residual_, 0.0, 1.0)) : 0.0F;
-      output.support_points = mode == TrackMsg::DIRECT ? last_points_ : 0;
+        static_cast<float>(std::clamp(1.0 - last_residual_ / max_residual_, 0.0, 1.0)) :
+        (mode == TrackMsg::SUPPORT_INFERRED ? 0.4F : 0.0F);
+      output.support_points = mode == TrackMsg::PREDICTED ? 0 : last_points_;
       output.fit_residual = static_cast<float>(last_residual_);
     }
     target_pub_->publish(output);
@@ -465,17 +524,21 @@ private:
   }
 
   lps::GridConfig grid_config_;
+  lps::SupportTracker support_tracker_;
   std::unique_ptr<lps::CudaGrid> gpu_;
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::unique_ptr<tf2_ros::TransformListener> tf_listener_;
   std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
   rclcpp::Subscription<CloudMsg>::SharedPtr sub_;
+  rclcpp::Subscription<tf2_msgs::msg::TFMessage>::SharedPtr static_tf_sub_;
+  std::vector<std::pair<std::string, Eigen::Vector3d>> static_exclusions_;
   rclcpp::Publisher<TrackMsg>::SharedPtr target_pub_;
   rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diagnostic_pub_;
   rclcpp::TimerBase::SharedPtr process_timer_;
   rclcpp::TimerBase::SharedPtr diagnostics_timer_;
   std::deque<QueuedCloud> queue_;
   std::string target_frame_;
+  double support_target_z_{1.2};
   double radius_{0.1365}, max_residual_{0.055}, min_arc_{1.2}, gate_{0.65};
   double prediction_s_{0.3}, reset_s_{1.0}, tf_wait_s_{0.2};
   double last_input_stamp_{0.0}, last_observation_{0.0}, state_stamp_{0.0}, z_{0.0};

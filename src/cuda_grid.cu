@@ -25,13 +25,14 @@ __device__ float coordinate(const unsigned char * point, int offset)
 }
 
 __global__ void accumulate(
-  const unsigned char * input, int point_step, int points,
+  const unsigned char * input, int point_step, int row_step, int width, int points,
   int x_offset, int y_offset, int z_offset,
   const float * transform, GridConfig config, GridCell * cells)
 {
   const int index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index >= points) {return;}
-  const unsigned char * point = input + static_cast<size_t>(index) * point_step;
+  const unsigned char * point = input + static_cast<size_t>(index / width) * row_step +
+    static_cast<size_t>(index % width) * point_step;
   const float x = coordinate(point, x_offset);
   const float y = coordinate(point, y_offset);
   const float z = coordinate(point, z_offset);
@@ -61,10 +62,13 @@ __global__ void accumulate(
 CudaGrid::CudaGrid(std::size_t max_bytes) : max_bytes_(max_bytes)
 {
   check(cudaMalloc(&input_, max_bytes_), "cudaMalloc(input)");
-  const auto result = cudaStreamCreate(reinterpret_cast<cudaStream_t *>(&stream_));
-  if (result != cudaSuccess) {
+  try {
+    check(cudaMalloc(&matrix_, 12 * sizeof(float)), "cudaMalloc(transform)");
+    check(cudaStreamCreate(reinterpret_cast<cudaStream_t *>(&stream_)), "cudaStreamCreate");
+  } catch (...) {
+    if (matrix_) {cudaFree(matrix_);}
     cudaFree(input_);
-    throw std::runtime_error(std::string("cudaStreamCreate: ") + cudaGetErrorString(result));
+    throw;
   }
 }
 
@@ -72,12 +76,13 @@ CudaGrid::~CudaGrid()
 {
   if (stream_) {cudaStreamDestroy(reinterpret_cast<cudaStream_t>(stream_));}
   if (cells_) {cudaFree(cells_);}
+  if (matrix_) {cudaFree(matrix_);}
   if (input_) {cudaFree(input_);}
 }
 
 std::vector<GridCell> CudaGrid::process(
   const std::uint8_t * data, std::size_t bytes, std::size_t points,
-  int point_step, int x_offset, int y_offset, int z_offset,
+  int point_step, int row_step, int width, int x_offset, int y_offset, int z_offset,
   const float matrix[12], const GridConfig & config)
 {
   if (bytes > max_bytes_ || points > static_cast<size_t>(INT32_MAX)) {
@@ -92,16 +97,14 @@ std::vector<GridCell> CudaGrid::process(
   auto stream = reinterpret_cast<cudaStream_t>(stream_);
   check(cudaMemcpyAsync(input_, data, bytes, cudaMemcpyHostToDevice, stream), "copy input");
   check(cudaMemsetAsync(cells_, 0, cell_count * sizeof(GridCell), stream), "clear grid");
-  float * device_matrix = nullptr;
-  check(cudaMallocAsync(&device_matrix, 12 * sizeof(float), stream), "allocate transform");
-  check(cudaMemcpyAsync(device_matrix, matrix, 12 * sizeof(float), cudaMemcpyHostToDevice, stream),
+  check(cudaMemcpyAsync(matrix_, matrix, 12 * sizeof(float), cudaMemcpyHostToDevice, stream),
     "copy transform");
   accumulate<<<(points + 255) / 256, 256, 0, stream>>>(
-    static_cast<const unsigned char *>(input_), point_step, static_cast<int>(points),
-    x_offset, y_offset, z_offset, device_matrix, config,
+    static_cast<const unsigned char *>(input_), point_step, row_step, width,
+    static_cast<int>(points),
+    x_offset, y_offset, z_offset, static_cast<float *>(matrix_), config,
     static_cast<GridCell *>(cells_));
   check(cudaGetLastError(), "accumulate kernel");
-  check(cudaFreeAsync(device_matrix, stream), "free transform");
   std::vector<GridCell> result(cell_count);
   check(cudaMemcpyAsync(result.data(), cells_, cell_count * sizeof(GridCell),
     cudaMemcpyDeviceToHost, stream), "copy grid");

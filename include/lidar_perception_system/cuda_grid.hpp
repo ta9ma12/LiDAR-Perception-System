@@ -42,12 +42,13 @@ public:
   // matrix: row-major 3x4 sensor-to-map transform.
   std::vector<GridCell> process(
     const std::uint8_t * data, std::size_t bytes, std::size_t points,
-    int point_step, int x_offset, int y_offset, int z_offset,
+    int point_step, int row_step, int width, int x_offset, int y_offset, int z_offset,
     const float matrix[12], const GridConfig & config);
 
 private:
   void * input_{nullptr};
   void * cells_{nullptr};
+  void * matrix_{nullptr};
   void * stream_{nullptr};
   std::size_t max_bytes_{0};
   std::size_t cell_capacity_{0};
